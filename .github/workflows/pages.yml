@@ -1,0 +1,26 @@
+# 备用：如果仓库 Settings → Pages 的 Source 选择 "GitHub Actions"，由此工作流部署整个仓库根目录。
+name: Deploy to GitHub Pages
+# 默认只手动触发（Actions → Deploy to GitHub Pages → Run workflow），避免与“从分支部署”模式重复或报错。
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4
