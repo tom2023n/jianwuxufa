@@ -36,11 +36,29 @@ let ctx = cv.getContext('2d');
 const mainCtx = ctx;
 const FONT = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Noto Sans SC","WenQuanYi Micro Hei",sans-serif';
 const DIRS = [[0,-1],[1,0],[0,1],[-1,0]]; // 上 右 下 左 (dx,dy)
-const C = { bg:'#f3efe6', board:'#fbf8f2', dot:'#d6cdbb', arrow:'#2d3047', red:'#e63946', green:'#2a9d8f',
-  gold:'#f4a261', text:'#2d3047', sub:'#8a8170', panel:'#fffaf0', heart:'#ef476f', blue:'#3a86ff' };
 const DASH_MAX = 8;
 // 箭头调色板：适配米色底、饱和度适中；相邻色相同时明度也拉开，色弱也能分辨
 const PALETTE = ['#e76f51', '#d99a00', '#4f9a2c', '#17998a', '#2f86d0', '#4a4fc0', '#9447c4', '#d64f95', '#2d3047', '#a0612a'];
+// 深色模式调色板：同色相、提亮，深墨色换成米白
+const PALETTE_DARK = ['#f2876b', '#f0b52e', '#6fc24c', '#2fc2ae', '#5aaaf0', '#8287f2', '#b67de2', '#ee77b2', '#e9e6f0', '#cf8f55'];
+// 统一配色：米色底 + 深墨蓝文字 + 珊瑚/橙主色；深色模式同一套语义色
+const THEMES = {
+  light: { bg:'#f3efe6', bg2:'#ebe4d6', board:'#fdfaf4', board2:'#f6f0e4', boardEdge:'rgba(110,90,60,.13)', speck:'rgba(110,90,60,.05)', dot:'#d8cebd',
+    arrow:'#2d3047', text:'#2b2d42', sub:'#857d6f', faint:'#b5ab98', card:'#fffdf9', cardEdge:'rgba(43,45,66,.07)', shadow:'rgba(90,70,40,.10)',
+    track:'#e8e0cf', seg:'#e7dfcd', red:'#e63946', redSoft:'rgba(230,57,70,.10)', green:'#2a9d8f', gold:'#f4a261', accent:'#e8603f', accent2:'#f6a04d',
+    accentShadow:'rgba(232,96,63,.28)', heart:'#ef476f', heartOff:'#e2d9c8', panel:'#fffdf9', blue:'#3a86ff', clockBg:'#e7f0ff', dim:'rgba(43,45,66,.45)',
+    ink:'#2b2d42', inkText:'#ffffff', hover:'rgba(45,48,71,.28)', toast:'rgba(43,45,66,.92)', toastText:'#fff', deco:0.12,
+    tGood:['#4cc9a4','#2a9d8f'], tMid:['#f9d56e','#f4a261'], tLow:['#ff8a7a','#e63946'], pal:PALETTE },
+  dark: { bg:'#191b26', bg2:'#11131b', board:'#272a3a', board2:'#222534', boardEdge:'rgba(255,255,255,.07)', speck:'rgba(255,255,255,.025)', dot:'#3f4458',
+    arrow:'#e9e6f0', text:'#eceaf3', sub:'#9c9aae', faint:'#5c5f75', card:'#242737', cardEdge:'rgba(255,255,255,.07)', shadow:'rgba(0,0,0,.35)',
+    track:'#33374a', seg:'#2a2d3e', red:'#ff5a67', redSoft:'rgba(255,90,103,.14)', green:'#3cc2b2', gold:'#ffb36b', accent:'#f06a48', accent2:'#ffa95a',
+    accentShadow:'rgba(240,106,72,.30)', heart:'#ff5c86', heartOff:'#3f4357', panel:'#242737', blue:'#5b9bff', clockBg:'#1f2b45', dim:'rgba(5,6,12,.6)',
+    ink:'#eceaf3', inkText:'#1b1d2a', hover:'rgba(233,230,240,.3)', toast:'rgba(236,234,243,.94)', toastText:'#1b1d2a', deco:0.10,
+    tGood:['#4fd6b2','#2fae9e'], tMid:['#ffd76e','#ffa95a'], tLow:['#ff8a7a','#ff4d5e'], pal:PALETTE_DARK }
+};
+let theme = (() => { try { return JSON.parse(localStorage.getItem('jwxf_save') || '{}').theme === 'dark' ? 'dark' : 'light'; } catch (e) { return 'light'; } })();
+const C = Object.assign({}, THEMES[theme]);
+const acol = a => a.ci == null ? C.arrow : C.pal[a.ci];
 // 给箭头上色：同一棋盘里相邻（格子挨着）的箭头不同色，并尽量平均使用各颜色
 function colorArrows(list, occArr, ncols, nrows, seed) {
   const nb = list.map(() => new Set());
@@ -70,8 +88,13 @@ let maxLevel = prog[diff] || 1, best = save.best || 0, timeFactor = save.timeFac
 let hintsStock = save.hints != null ? save.hints : 3;
 function persist() {
   prog[diff] = maxLevel;
-  try { localStorage.setItem('jwxf_save', JSON.stringify({ v: 2, diff, prog, best, timeFactor, hints: hintsStock })); } catch (e) {}
+  try { localStorage.setItem('jwxf_save', JSON.stringify({ v: 2, diff, prog, best, timeFactor, hints: hintsStock, theme })); } catch (e) {}
 }
+function applyThemeChrome() {
+  document.documentElement.style.background = document.body.style.background = C.bg;
+  const m = document.querySelector('meta[name=theme-color]'); if (m) m.setAttribute('content', C.bg);
+}
+function setTheme(t) { theme = t === 'dark' ? 'dark' : 'light'; Object.assign(C, THEMES[theme]); boardLayer = null; menuLayer = null; bgKey = ''; applyThemeChrome(); persist(); dirty = true; }
 function setDiff(d) { prog[diff] = maxLevel; diff = d; maxLevel = prog[diff] || 1; persist(); }
 
 // ---------- 工具 ----------
@@ -290,6 +313,7 @@ let hearts = 3, timeLeft = 0, timeTotal = 0, score = 0, levelScore = 0, combo = 
 let elapsed = 0, hintId = -1, particles = [], floaters = [], rainbowQueue = [], endTimer = 0, loseReason = '';
 let shake = 0, flash = 0, dashFlash = 0, buttons = [], hoverId = -1, lastResult = null, toast = null, now = 0;
 let pointerType = 'mouse';
+let segAnim = diff, comboAt = -9, panelAt = -9, starPopped = [];
 
 const inb = (x, y) => x >= 0 && y >= 0 && x < cols && y < rows;
 const cid = (x, y) => y * cols + x;
@@ -337,6 +361,7 @@ function launch(a, auto) {
   if (hintId === a.id) hintId = -1;
   // 连击
   if (elapsed - lastClear < 1.4) combo++; else combo = 1;
+  if (combo >= 2) comboAt = now;
   lastClear = elapsed;
   const pts = 10 + (combo - 1) * 5 + (a.rainbow ? 50 : 0);
   levelScore += pts; score += pts;
@@ -344,7 +369,7 @@ function launch(a, auto) {
   const [hx, hy] = a.path[a.path.length - 1];
   const [px, py] = cellXY(hx, hy);
   floaters.push({ x: px, y: py - cs * 0.3, text: '+' + pts + (combo >= 3 ? '  连击×' + combo : ''), life: 0.9, col: combo >= 3 ? C.gold : C.green });
-  burst(px, py, a.rainbow ? null : (a.col || C.arrow), a.rainbow ? 22 : 10);
+  burst(px, py, a.rainbow ? null : acol(a), a.rainbow ? 22 : 10);
   sfx.fly(combo);
   // 时钟道具
   const [dx, dy] = DIRS[a.dir]; let x = hx + dx, y = hy + dy;
@@ -405,10 +430,10 @@ function win() {
   timeFactor = Math.max(0.85, timeFactor * 0.97);
   lastResult = { stars, bonus, time: elapsed };
   persist(); sfx.win();
-  for (let i = 0; i < 40; i++) burst(W / 2 + (Math.random() - 0.5) * W * 0.6, H * 0.3, null, 1);
+  panelAt = now; starPopped = []; confetti();
 }
 function lose(reason) {
-  state = 'lose'; loseReason = reason;
+  state = 'lose'; loseReason = reason; panelAt = now;
   if (reason === '时间到了') timeFactor = Math.min(1.6, timeFactor * 1.12); // 动态时间：没赶上就多给点时间
   best = Math.max(best, score); persist(); sfx.lose();
 }
@@ -438,22 +463,31 @@ function computeBoard() {
   boardLayer = null;
 }
 // 离屏缓存层：棋盘底板+点阵（静态，只在开局/尺寸变化时画一次）、主菜单背景箭头
-let boardLayer = null, menuLayer = null, dirty = true;
+let boardLayer = null, menuLayer = null, dirty = true, bgKey = '';
 function makeLayer(w, h) {
   const c = document.createElement('canvas'); c.width = Math.max(1, Math.ceil(w * DPR)); c.height = Math.max(1, Math.ceil(h * DPR));
   const g = c.getContext('2d'); g.setTransform(DPR, 0, 0, DPR, 0, 0); return { c, g, w, h };
 }
 function withCtx(g, fn) { const old = ctx; ctx = g; try { fn(); } finally { ctx = old; } }
 function buildBoardLayer() {
-  const m = 26, L = makeLayer(bw + m * 2, bh + m * 2), sp = Math.min(9, cs * 0.28);
+  const m = 30, L = makeLayer(bw + m * 2, bh + m * 2), sp = Math.min(10, cs * 0.3);
   L.x = ox - m; L.y = oy - m;
   withCtx(L.g, () => {
     ctx.translate(-L.x, -L.y);
-    ctx.beginPath();
-    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if (mask[cid(x, y)]) ctx.rect(ox + x * cs, oy + y * cs, cs, cs);
-    ctx.fillStyle = C.board; ctx.strokeStyle = C.board; ctx.lineJoin = 'round'; ctx.lineWidth = sp * 2;
-    ctx.shadowColor = 'rgba(0,0,0,.10)'; ctx.shadowBlur = 14; ctx.stroke(); ctx.shadowBlur = 0; ctx.fill();
-    ctx.fillStyle = C.dot; ctx.beginPath(); const dr = Math.max(1.8, cs * 0.08);
+    const shape = () => { ctx.beginPath(); for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if (mask[cid(x, y)]) ctx.rect(ox + x * cs, oy + y * cs, cs, cs); };
+    const g = ctx.createLinearGradient(0, oy - sp, 0, oy + bh + sp); g.addColorStop(0, C.board); g.addColorStop(1, C.board2);
+    ctx.lineJoin = 'round';
+    // 柔和投影 + 细边线（离屏只画一次，允许用 shadowBlur）
+    shape(); ctx.lineWidth = sp * 2 + 2; ctx.strokeStyle = C.boardEdge; ctx.shadowColor = C.shadow; ctx.shadowBlur = 22; ctx.shadowOffsetY = 8; ctx.stroke();
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    shape(); ctx.lineWidth = sp * 2; ctx.strokeStyle = g; ctx.fillStyle = g; ctx.stroke(); ctx.fill();
+    // 纸张细纹理：固定种子的细小斑点
+    ctx.save(); shape(); ctx.clip(); ctx.fillStyle = C.speck; let sd = 7;
+    const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647, n = Math.min(4000, (bw * bh) / 40 | 0);
+    for (let i = 0; i < n; i++) ctx.fillRect(ox + rnd() * bw, oy + rnd() * bh, 1 + rnd() * 1.2, 1 + rnd() * 1.2);
+    ctx.restore();
+    // 更细的点阵
+    ctx.fillStyle = C.dot; ctx.beginPath(); const dr = Math.max(1.3, cs * 0.055);
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if (mask[cid(x, y)]) { const cx = ox + (x + 0.5) * cs, cy = oy + (y + 0.5) * cs; ctx.moveTo(cx + dr, cy); ctx.arc(cx, cy, dr, 0, Math.PI * 2); }
     ctx.fill();
   });
@@ -462,6 +496,15 @@ function buildBoardLayer() {
 const cellXY = (x, y) => [ox + (x + 0.5) * cs, oy + (y + 0.5) * cs];
 
 // ---------- 粒子 / 飘字 ----------
+function starBurst(x, y) {
+  for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2, v = 90 + Math.random() * 70;
+    particles.push({ star: 1, x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 30, life: 0.55 + Math.random() * 0.25, col: i % 2 ? '#ffc93c' : '#ffe08a', r: 3 + Math.random() * 2.5, rot: Math.random() * 6 }); }
+}
+function confetti() {
+  const cols2 = C.pal.slice(0, 8).concat(['#ffc93c']);
+  for (let i = 0; i < 70; i++) particles.push({ cf: 1, x: Math.random() * W, y: -10 - Math.random() * H * 0.35, vx: (Math.random() - 0.5) * 80, vy: 60 + Math.random() * 80,
+    rot: Math.random() * 6, vr: (Math.random() - 0.5) * 8, ph: Math.random() * 6, flip: 1, w: 6 + Math.random() * 5, h: 3.5 + Math.random() * 3, col: cols2[i % cols2.length], life: 2.6 + Math.random() * 1.2 });
+}
 function burst(x, y, col, n) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 180;
@@ -472,12 +515,20 @@ function burst(x, y, col, n) {
 // ---------- 更新 ----------
 function update(dt) {
   now += dt;
-  for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 400 * dt; p.life -= dt; }
+  for (const p of particles) {
+    if (p.cf) { p.vy = Math.min(p.vy + 90 * dt, 170); p.vx *= 1 - dt * 0.8; p.x += (p.vx + Math.sin(now * 3 + p.ph) * 26) * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.flip = Math.cos(now * 6 + p.ph); }
+    else { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += (p.star ? 160 : 400) * dt; if (p.star) p.rot += 3 * dt; }
+    p.life -= dt;
+  }
   particles = particles.filter(p => p.life > 0);
   for (const f of floaters) { f.y -= 40 * dt; f.life -= dt; }
   floaters = floaters.filter(f => f.life > 0);
   if (toast) { toast.life -= dt; if (toast.life <= 0) toast = null; }
   shake = Math.max(0, shake - dt); flash = Math.max(0, flash - dt); dashFlash = Math.max(0, dashFlash - dt * 1.5);
+  segAnim += (diff - segAnim) * Math.min(1, dt * 14); if (Math.abs(diff - segAnim) < 0.002) segAnim = diff;
+  // 过关面板：星星依次弹出，每颗弹出时迸出小星星
+  if (state === 'win' && lastResult) { const { py } = panelGeom();
+    for (let i = 0; i < lastResult.stars; i++) if (!starPopped[i] && now - panelAt >= STAR_D[i] + 0.12) { starPopped[i] = true; starBurst(W / 2 + STAR_X[i], py + 122 - (i === 1 ? 6 : 0)); sfx.click(); } }
   if (state !== 'play') return;
   elapsed += dt;
   if (endTimer === 0) timeLeft -= dt;
@@ -556,68 +607,163 @@ function drawArrowShape(a, s, color, alpha, under) {
   ctx.restore();
 }
 
+// ---------- 图标（全部代码绘制） ----------
+const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+function drawIcon(name, x, y, s, col, bgc) {
+  ctx.save(); ctx.translate(x, y); ctx.strokeStyle = col; ctx.fillStyle = col;
+  ctx.lineWidth = Math.max(1.6, s * 0.12); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const h = s / 2;
+  if (name === 'home') {
+    ctx.beginPath(); ctx.moveTo(-h * 0.9, -h * 0.05); ctx.lineTo(0, -h * 0.85); ctx.lineTo(h * 0.9, -h * 0.05); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-h * 0.62, -h * 0.25); ctx.lineTo(-h * 0.62, h * 0.8); ctx.lineTo(h * 0.62, h * 0.8); ctx.lineTo(h * 0.62, -h * 0.25); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-h * 0.18, h * 0.8); ctx.lineTo(-h * 0.18, h * 0.3); ctx.lineTo(h * 0.18, h * 0.3); ctx.lineTo(h * 0.18, h * 0.8); ctx.stroke();
+  } else if (name === 'restart') {
+    ctx.beginPath(); ctx.arc(0, 0, h * 0.72, -Math.PI * 0.35, Math.PI * 1.45); ctx.stroke();
+    const a = -Math.PI * 0.35, ex = Math.cos(a) * h * 0.72, ey = Math.sin(a) * h * 0.72;
+    ctx.beginPath(); ctx.moveTo(ex + h * 0.42, ey - h * 0.02); ctx.lineTo(ex - h * 0.02, ey - h * 0.02); ctx.lineTo(ex + h * 0.12, ey - h * 0.44); ctx.stroke();
+  } else if (name === 'bulb') {
+    ctx.beginPath(); ctx.arc(0, -h * 0.2, h * 0.55, Math.PI * 0.8, Math.PI * 2.2); ctx.lineTo(h * 0.25, h * 0.45); ctx.lineTo(-h * 0.25, h * 0.45); ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-h * 0.22, h * 0.75); ctx.lineTo(h * 0.22, h * 0.75); ctx.stroke();
+  } else if (name === 'play') {
+    ctx.beginPath(); ctx.moveTo(-h * 0.45, -h * 0.65); ctx.lineTo(h * 0.7, 0); ctx.lineTo(-h * 0.45, h * 0.65); ctx.closePath(); ctx.lineWidth = s * 0.08; ctx.stroke(); ctx.fill();
+  } else if (name === 'next') {
+    ctx.beginPath(); ctx.moveTo(-h * 0.7, 0); ctx.lineTo(h * 0.6, 0); ctx.moveTo(h * 0.1, -h * 0.5); ctx.lineTo(h * 0.65, 0); ctx.lineTo(h * 0.1, h * 0.5); ctx.stroke();
+  } else if (name === 'moon') {
+    ctx.beginPath(); ctx.arc(0, 0, h * 0.72, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = bgc; ctx.beginPath(); ctx.arc(h * 0.38, -h * 0.3, h * 0.6, 0, Math.PI * 2); ctx.fill();
+  } else if (name === 'sun') {
+    ctx.beginPath(); ctx.arc(0, 0, h * 0.36, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; ctx.moveTo(Math.cos(a) * h * 0.6, Math.sin(a) * h * 0.6); ctx.lineTo(Math.cos(a) * h * 0.85, Math.sin(a) * h * 0.85); } ctx.stroke();
+  } else if (name === 'clock') {
+    ctx.beginPath(); ctx.arc(0, 0, h * 0.78, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -h * 0.45); ctx.lineTo(0, 0); ctx.lineTo(h * 0.35, h * 0.2); ctx.stroke();
+  } else if (name === 'trophy') {
+    ctx.beginPath(); ctx.moveTo(-h * 0.55, -h * 0.7); ctx.lineTo(h * 0.55, -h * 0.7); ctx.lineTo(h * 0.45, -h * 0.05);
+    ctx.quadraticCurveTo(0, h * 0.35, -h * 0.45, -h * 0.05); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(-h * 0.58, -h * 0.4, h * 0.22, Math.PI * 0.5, Math.PI * 1.5); ctx.arc(h * 0.58, -h * 0.4, h * 0.22, -Math.PI * 0.5, Math.PI * 0.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, h * 0.15); ctx.lineTo(0, h * 0.5); ctx.stroke(); rr(-h * 0.4, h * 0.5, h * 0.8, h * 0.28, h * 0.08); ctx.fill();
+  } else if (name === 'broken') {
+    ctx.scale(s / 36, s / 36);
+    ctx.beginPath(); ctx.moveTo(0, 12); ctx.bezierCurveTo(-17, -1, -15, -16, -6, -16); ctx.bezierCurveTo(-3, -16, -1, -14, 0, -12);
+    ctx.lineTo(-3, -4); ctx.lineTo(2, 1); ctx.lineTo(-1, 8); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(2, 12); ctx.lineTo(1, 8); ctx.lineTo(4, 1); ctx.lineTo(-1, -4); ctx.lineTo(2, -12); ctx.bezierCurveTo(3, -14, 5, -16, 8, -16);
+    ctx.bezierCurveTo(17, -16, 19, -1, 2, 12); ctx.closePath(); ctx.fill();
+  } else if (name === 'arrow') {
+    ctx.beginPath(); ctx.moveTo(-h * 0.75, h * 0.45); ctx.lineTo(-h * 0.75, -h * 0.05); ctx.lineTo(h * 0.35, -h * 0.05); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(h * 0.8, -h * 0.05); ctx.lineTo(h * 0.25, -h * 0.45); ctx.lineTo(h * 0.25, h * 0.35); ctx.closePath(); ctx.fill();
+  } else if (name === 'bolt') {
+    ctx.beginPath(); ctx.moveTo(h * 0.15, -h * 0.85); ctx.lineTo(-h * 0.5, h * 0.1); ctx.lineTo(-h * 0.02, h * 0.1); ctx.lineTo(-h * 0.15, h * 0.85); ctx.lineTo(h * 0.5, -h * 0.1); ctx.lineTo(h * 0.02, -h * 0.1); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
 function drawHeart(x, y, s, filled) {
   ctx.save(); ctx.translate(x, y); ctx.scale(s / 32, s / 32);
   ctx.beginPath(); ctx.moveTo(0, 10);
   ctx.bezierCurveTo(-16, -2, -14, -16, -6, -16); ctx.bezierCurveTo(-2, -16, 0, -13, 0, -10);
   ctx.bezierCurveTo(0, -13, 2, -16, 6, -16); ctx.bezierCurveTo(14, -16, 16, -2, 0, 10); ctx.closePath();
-  if (filled) { ctx.fillStyle = C.heart; ctx.fill(); } else { ctx.strokeStyle = '#c9bfae'; ctx.lineWidth = 2.5; ctx.stroke(); }
+  if (filled) { ctx.fillStyle = C.heart; ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.beginPath(); ctx.ellipse(-6.5, -9, 3.2, 2.2, -0.5, 0, Math.PI * 2); ctx.fill(); }
+  else { ctx.fillStyle = C.heartOff; ctx.fill(); }
   ctx.restore();
 }
 function drawClock(x, y, r) {
   ctx.save(); const pulse = 1 + Math.sin(now * 5) * 0.08;
   ctx.fillStyle = 'rgba(58,134,255,.16)'; ctx.beginPath(); ctx.arc(x, y, r * pulse * 1.45, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#e7f0ff'; ctx.strokeStyle = C.blue; ctx.lineWidth = 2.5;
+  ctx.fillStyle = C.clockBg; ctx.strokeStyle = C.blue; ctx.lineWidth = 2.5;
   ctx.beginPath(); ctx.arc(x, y, r * pulse, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - r * 0.6); ctx.moveTo(x, y); ctx.lineTo(x + r * 0.45, y); ctx.stroke();
   ctx.fillStyle = C.blue; ctx.font = `bold ${Math.max(9, r * 0.6)}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillText('+5', x, y + r * 1.05); ctx.restore();
 }
 
-function button(x, y, w, h, label, cb, style) {
-  buttons.push({ x, y, w, h, cb });
-  ctx.save();
-  const primary = style === 'primary';
-  ctx.fillStyle = 'rgba(0,0,0,.08)'; rr(x, y + 3, w, h, h / 2); ctx.fill();
-  ctx.fillStyle = primary ? C.arrow : '#fff'; rr(x, y, w, h, h / 2); ctx.fill();
-  if (!primary) { ctx.strokeStyle = '#ddd3c0'; ctx.lineWidth = 1.5; ctx.stroke(); }
-  ctx.fillStyle = primary ? '#fff' : C.text; ctx.font = `bold ${Math.round(h * 0.38)}px ${FONT}`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x + w / 2, y + h / 2 + 1);
+// 卡片 / 按钮：假阴影（偏移的半透明圆角矩形），不用 shadowBlur
+function card(x, y, w, h, r, fill) {
+  ctx.fillStyle = C.shadow; rr(x, y + 2, w, h, r); ctx.fill();
+  ctx.fillStyle = fill || C.card; rr(x, y, w, h, r); ctx.fill();
+  ctx.strokeStyle = C.cardEdge; ctx.lineWidth = 1; ctx.stroke();
+}
+let pressK = null, pressAt = -9, btnBusy = false;
+function accentGrad(x, y, w, h) { const g = ctx.createLinearGradient(x, y, x + w, y + h); g.addColorStop(0, C.accent2); g.addColorStop(1, C.accent); return g; }
+// style: primary（主色渐变）| ink（深色）| card（默认浅色）| ghost（纯文字）| round（圆形图标按钮）
+function button(x, y, w, h, label, cb, style, icon, key) {
+  key = key || label || icon; buttons.push({ x, y, w, h, cb, key });
+  const pr = pressK === key ? clamp((now - pressAt) / 0.2, 0, 1) : 1, sc = 1 - 0.08 * Math.sin(Math.PI * pr);
+  ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.scale(sc, sc); ctx.translate(-x - w / 2, -y - h / 2);
+  const r = Math.min(h, w) / 2; let fg = C.text;
+  if (style === 'primary') {
+    ctx.fillStyle = C.accentShadow; rr(x, y + 4, w, h, r); ctx.fill();
+    ctx.fillStyle = accentGrad(x, y, w, h); rr(x, y, w, h, r); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.18)'; rr(x + 6, y + 3, w - 12, h * 0.42, h * 0.21); ctx.fill();
+    fg = '#fff';
+  } else if (style === 'ink') {
+    ctx.fillStyle = C.shadow; rr(x, y + 3, w, h, r); ctx.fill();
+    ctx.fillStyle = C.ink; rr(x, y, w, h, r); ctx.fill(); fg = C.inkText;
+  } else if (style === 'ghost') { fg = C.sub; }
+  else { card(x, y, w, h, r); }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = fg;
+  const fs = style === 'ghost' ? 14 : Math.round(clamp(h * 0.34, 13, 20));
+  ctx.font = `${style === 'ghost' ? 500 : 700} ${fs}px ${FONT}`;
+  const tw = label ? ctx.measureText(label).width : 0, is = style === 'round' ? h * 0.46 : fs * 1.1, gap = label && icon ? 8 : 0;
+  const tot = (icon ? is : 0) + gap + tw, sx = x + w / 2 - tot / 2;
+  if (icon) drawIcon(icon, sx + is / 2, y + h / 2, is, fg, style === 'primary' ? C.accent : C.card);
+  if (label) { ctx.fillStyle = fg; ctx.textAlign = 'left'; ctx.fillText(label, sx + (icon ? is : 0) + gap, y + h / 2 + 1); }
   ctx.restore();
 }
 
 function drawHUD() {
-  ctx.fillStyle = C.text; ctx.textBaseline = 'middle';
-  ctx.font = `bold 22px ${FONT}`; ctx.textAlign = 'left'; ctx.fillText(`第 ${level} 关`, 18, 34);
-  ctx.textAlign = 'right'; ctx.font = `bold 18px ${FONT}`; ctx.fillText(`得分 ${score}`, W - 18, 34);
-  for (let i = 0; i < maxHearts; i++) drawHeart(W / 2 - (maxHearts - 1) * 17 + i * 34, 36, 26, i < hearts);
-  // 倒计时条
-  const x = 18, y = 64, w = W - 36, h = 14, r = clamp(timeLeft / timeTotal, 0, 1);
-  ctx.fillStyle = '#e4dccb'; rr(x, y, w, h, 7); ctx.fill();
-  const col = r > 0.5 ? C.green : r > 0.2 ? '#e9c46a' : C.red;
-  const blink = r <= 0.2 && Math.sin(now * 12) > 0;
-  ctx.fillStyle = blink ? '#ff8a8a' : col; if (r > 0.01) { rr(x, y, Math.max(h, w * r), h, 7); ctx.fill(); }
-  ctx.fillStyle = C.sub; ctx.font = `13px ${FONT}`; ctx.textAlign = 'left';
-  const left = arrows.filter(a => a.alive).length;
-  ctx.fillText(`剩余箭头 ${left}`, 18, 92);
-  ctx.textAlign = 'right'; ctx.fillText(`⏱ ${Math.ceil(timeLeft)} 秒`, W - 18, 92);
-  ctx.textAlign = 'center';
-  if (combo >= 2 && elapsed - lastClear < 1.4) { ctx.fillStyle = C.gold; ctx.font = `bold 15px ${FONT}`; ctx.fillText(`连击 ×${combo}`, W / 2, 92); }
-  else { ctx.fillStyle = C.sub; ctx.font = `13px ${FONT}`; ctx.fillText(`${DIFFS[diff].name} · ${shapeName}`, W / 2, 92); }
+  const top = 8, ch = 48;
+  // 左：关卡 + 难度·形状
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.font = `800 17px ${FONT}`; const t1 = `第 ${level} 关`, w1a = ctx.measureText(t1).width;
+  ctx.font = `12px ${FONT}`; const t2 = `${DIFFS[diff].name} · ${shapeName}`, w1b = ctx.measureText(t2).width;
+  const lw = Math.max(w1a, w1b) + 32; card(14, top, lw, ch, 18);
+  ctx.fillStyle = C.text; ctx.font = `800 17px ${FONT}`; ctx.fillText(t1, 30, top + 18);
+  ctx.fillStyle = C.sub; ctx.font = `12px ${FONT}`; ctx.fillText(t2, 30, top + 35);
+  // 右：得分
+  ctx.font = `800 18px ${FONT}`; const sv = String(score), rw = Math.max(76, ctx.measureText(sv).width + 32), rx = W - 14 - rw;
+  card(rx, top, rw, ch, 18); ctx.textAlign = 'right';
+  ctx.fillStyle = C.sub; ctx.font = `12px ${FONT}`; ctx.fillText('得分', W - 30, top + 16);
+  ctx.fillStyle = C.text; ctx.font = `800 18px ${FONT}`; ctx.fillText(sv, W - 30, top + 33);
+  // 中：爱心胶囊（夹在左右卡片之间居中）
+  const gapL = 14 + lw + 8, gapR = rx - 8, sp = clamp((gapR - gapL - 20) / maxHearts, 18, 28), hw = sp * maxHearts + 14;
+  const hx = clamp(W / 2 - hw / 2, gapL, gapR - hw);
+  card(hx, top, hw, ch, ch / 2);
+  for (let i = 0; i < maxHearts; i++) drawHeart(hx + 7 + sp * (i + 0.5), top + ch / 2 + 2, sp * 0.82, i < hearts);
+  // 倒计时：渐变进度条 + 右侧秒数胶囊
+  const pillW = 66, by = 66, bx = 14, bw2 = W - 28 - pillW - 8, bh2 = 12, r = clamp(timeLeft / timeTotal, 0, 1);
+  ctx.fillStyle = C.track; rr(bx, by + 8, bw2, bh2, bh2 / 2); ctx.fill();
+  if (r > 0.01) {
+    const cols2 = r > 0.5 ? C.tGood : r > 0.2 ? C.tMid : C.tLow, g = ctx.createLinearGradient(bx, 0, bx + bw2, 0);
+    g.addColorStop(0, cols2[0]); g.addColorStop(1, cols2[1]);
+    ctx.globalAlpha = r <= 0.2 ? 0.65 + 0.35 * Math.abs(Math.sin(now * 6)) : 1;
+    ctx.fillStyle = g; rr(bx, by + 8, Math.max(bh2, bw2 * r), bh2, bh2 / 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.3)'; rr(bx + 3, by + 9.5, Math.max(4, bw2 * r - 6), 3.5, 1.75); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  const px = W - 14 - pillW; card(px, by, pillW, 28, 14);
+  const low = r <= 0.2; drawIcon('clock', px + 18, by + 14, 15, low ? C.red : C.sub);
+  ctx.fillStyle = low ? C.red : C.text; ctx.font = `700 14px ${FONT}`; ctx.textAlign = 'left'; ctx.fillText(`${Math.ceil(timeLeft)}s`, px + 30, by + 15);
+  // 第三行：剩余箭头 · 连击（弹跳） · 冲刺能量
+  const ry = 104, left = arrows.filter(a => a.alive).length;
+  drawIcon('arrow', 24, ry, 13, C.sub); ctx.fillStyle = C.sub; ctx.font = `13px ${FONT}`; ctx.textAlign = 'left'; ctx.fillText(`剩余 ${left}`, 36, ry + 1);
+  const dw = 54, dx = W - 14 - dw, dr = clamp(dash / DASH_MAX, 0, 1);
+  drawIcon('bolt', dx - 30, ry, 12, dr > 0 ? C.accent : C.faint); ctx.fillStyle = C.sub; ctx.textAlign = 'right'; ctx.fillText('冲刺', dx - 6, ry + 1);
+  ctx.fillStyle = C.track; rr(dx, ry - 3, dw, 6, 3); ctx.fill();
+  if (dr > 0) { ctx.fillStyle = accentGrad(dx, 0, dw, 0); rr(dx, ry - 3, Math.max(6, dw * dr), 6, 3); ctx.fill(); }
+  if (combo >= 2 && elapsed - lastClear < 1.4) {
+    const t = now - comboAt, sc = 1 + 0.38 * Math.exp(-t * 9) * Math.cos(t * 26);
+    ctx.save(); ctx.translate(W / 2, ry); ctx.scale(sc, sc);
+    ctx.font = `800 14px ${FONT}`; const txt = `连击 ×${combo}`, tw = ctx.measureText(txt).width + 24;
+    ctx.fillStyle = C.accentShadow; rr(-tw / 2, -11 + 2, tw, 22, 11); ctx.fill();
+    ctx.fillStyle = accentGrad(-tw / 2, -11, tw, 22); rr(-tw / 2, -11, tw, 22, 11); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(txt, 0, 1); ctx.restore();
+  }
 }
 
 function drawBoard() {
-  // 冲刺条：棋盘上下两条线槽
-  const pad = 10, sp = Math.min(9, cs * 0.28);
-  // 异形棋盘底板 + 点阵：来自离屏缓存（不再每帧重画几百个点和带模糊阴影的路径）
+  const pad = 10;
+  // 异形棋盘底板（纸张渐变 + 细纹理 + 柔和阴影）+ 点阵：来自离屏缓存，不再每帧重画
   if (!boardLayer) buildBoardLayer();
   ctx.drawImage(boardLayer.c, boardLayer.x, boardLayer.y, boardLayer.w, boardLayer.h);
-  const r = clamp(dash / DASH_MAX, 0, 1);
-  for (const yy of [oy - pad - 9, oy + bh + pad + 4]) {
-    ctx.fillStyle = '#e4dccb'; rr(ox - pad, yy, bw + pad * 2, 5, 2.5); ctx.fill();
-    if (r > 0) { const g = ctx.createLinearGradient(ox, 0, ox + bw, 0); g.addColorStop(0, '#f4a261'); g.addColorStop(1, '#e76f51');
-      ctx.fillStyle = g; rr(ox - pad, yy, (bw + pad * 2) * r, 5, 2.5); ctx.fill(); }
-  }
   if (dashFlash > 0) { ctx.fillStyle = `rgba(244,162,97,${dashFlash * 0.35})`; rr(ox - pad, oy - pad, bw + pad * 2, bh + pad * 2, 16); ctx.fill(); }
   for (const c of clocks) if (!c.taken) { const [px, py] = cellXY(c.x, c.y); drawClock(px, py, cs * 0.3); }
   // 辅助线（鼠标悬停时显示前方通道）
@@ -631,24 +777,23 @@ function drawBoard() {
   // 箭头：静止的先画，飞行的后画
   for (const a of arrows) {
     if (a.gone || (a.anim && a.anim.type === 'fly')) continue;
-    const own = a.col || C.arrow, ow = Math.max(2, cs * 0.07);
+    const own = acol(a), ow = Math.max(2, cs * 0.07);
     let s = 0, color = own, under = null;
-    // 撞墙/挡路：变红闪烁 + 深色外描边（箭头本身是暖色时也一眼可辨），撞墙的那支还会前后抖动
+    // 撞墙/挡路：变红闪烁 + 深色外描边，撞墙的那支还会前后抖动
     const bumping = a.anim && a.anim.type === 'bump';
     if (bumping) { const p = a.anim.t / a.anim.dur; s = a.anim.dist * Math.sin(Math.PI * p); }
     if (bumping || a.hitFlash > 0) {
       const on = bumping || Math.sin(a.hitFlash * 40) > -0.3;
       color = on ? C.red : own; under = { col: C.text, w: ow };
     } else if (a.id === hintId) {
-      // 提示：金色光圈脉动 + 白色内圈，不用模糊阴影
       under = { col: '#ffbf1f', w: ow * (1.6 + Math.sin(now * 8) * 0.6), a: 0.9 };
-    } else if (a.id === hoverId && pointerType === 'mouse') under = { col: 'rgba(45,48,71,.28)', w: ow * 0.8 };
+    } else if (a.id === hoverId && pointerType === 'mouse') under = { col: C.hover, w: ow * 0.8 };
     drawArrowShape(a, s, color, 1, under);
   }
   for (const a of arrows) {
     if (!a.anim || a.anim.type !== 'fly') continue;
     const s = a.anim.s, alpha = clamp(1 - (s - a.exitS) / (a.L + 3), 0, 1);
-    drawArrowShape(a, s, a.col || C.arrow, alpha, null);
+    drawArrowShape(a, s, acol(a), alpha, null);
   }
 }
 
@@ -658,99 +803,172 @@ function drawPlay() {
   drawHUD(); drawBoard();
   ctx.restore();
   if (flash > 0) { ctx.fillStyle = `rgba(230,57,70,${flash * 0.4})`; ctx.fillRect(0, 0, W, H); }
-  const bw2 = Math.min(150, (W - 60) / 3), by = H - 70;
   if (state === 'play') {
-    button(W / 2 - bw2 * 1.5 - 12, by, bw2, 48, '主页', () => { state = 'menu'; });
-    button(W / 2 - bw2 / 2, by, bw2, 48, `提示 (${hintsStock})`, useHint, 'primary');
-    button(W / 2 + bw2 / 2 + 12, by, bw2, 48, '重开', () => startLevel(level));
+    const d = 52, hw = Math.min(160, W - 28 - d * 2 - 32), by = H - 70, cx = W / 2;
+    button(cx - hw / 2 - 16 - d, by, d, d, '', () => { state = 'menu'; }, 'round', 'home');
+    button(cx - hw / 2, by, hw, d, '提示', useHint, 'primary', 'bulb', 'hint');
+    button(cx + hw / 2 + 16, by, d, d, '', () => startLevel(level), 'round', 'restart');
+    // 提示剩余次数角标
+    const bx = cx + hw / 2 - 10, byy = by + 4;
+    ctx.fillStyle = hintsStock > 0 ? C.ink : C.faint; ctx.beginPath(); ctx.arc(bx, byy, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = C.bg; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = C.inkText; ctx.font = `800 12px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(hintsStock), bx, byy + 1);
   }
 }
 
 function drawFX() {
-  for (const p of particles) { ctx.globalAlpha = clamp(p.life * 2, 0, 1); ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
-  ctx.globalAlpha = 1;
+  for (const p of particles) {
+    ctx.globalAlpha = clamp(p.life * 2, 0, 1); ctx.fillStyle = p.col;
+    if (p.cf) { const c = Math.cos(p.rot), s = Math.sin(p.rot); ctx.setTransform(DPR * c, DPR * s, -DPR * s * p.flip, DPR * c * p.flip, DPR * p.x, DPR * p.y); ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); }
+    else if (p.star) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); starPath(p.x, p.y, p.r, p.rot); ctx.fill(); }
+    else { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
+  }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.globalAlpha = 1;
   for (const f of floaters) {
-    ctx.globalAlpha = clamp(f.life * 2, 0, 1); ctx.fillStyle = f.col; ctx.font = `bold ${f.big ? 26 : 16}px ${FONT}`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 4; ctx.strokeStyle = '#fff';
+    ctx.globalAlpha = clamp(f.life * 2, 0, 1); ctx.fillStyle = f.col; ctx.font = `800 ${f.big ? 26 : 16}px ${FONT}`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.strokeStyle = C.card;
     ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y);
   }
   ctx.globalAlpha = 1;
   if (toast) {
-    ctx.font = `15px ${FONT}`; const tw = ctx.measureText(toast.text).width + 36;
-    ctx.fillStyle = 'rgba(45,48,71,.9)'; rr(W / 2 - tw / 2, H - 130, tw, 38, 19); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(toast.text, W / 2, H - 111);
+    ctx.font = `14px ${FONT}`; const tw = ctx.measureText(toast.text).width + 36;
+    ctx.fillStyle = C.toast; rr(W / 2 - tw / 2, H - 122, tw, 36, 18); ctx.fill();
+    ctx.fillStyle = C.toastText; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(toast.text, W / 2, H - 104);
   }
 }
 
-// 主菜单的装饰箭头
+// 主菜单的装饰箭头（缓存成一张图，菜单里只做整体缓慢漂移 = 每帧一次 drawImage）
 const menuDeco = (() => { const g = genLevel(5, 0, { mc: 10, mr: 13 }); g.arrows.forEach((a, i) => { a.id = i; a.alive = true; }); colorArrows(g.arrows, g.occ, g.cols, g.rows, 3); return g; })();
+const DIFF_TIP = ['轻松上手', '烧脑挑战', '极限手速'];
+function drawLogo(x, y, s) {
+  ctx.save();
+  ctx.fillStyle = C.accentShadow; rr(x - s / 2, y - s / 2 + 4, s, s, s * 0.28); ctx.fill();
+  ctx.fillStyle = accentGrad(x - s / 2, y - s / 2, s, s); rr(x - s / 2, y - s / 2, s, s, s * 0.28); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.28)';
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { ctx.beginPath(); ctx.arc(x + (i - 1) * s * 0.27, y + (j - 1) * s * 0.27, s * 0.035, 0, Math.PI * 2); ctx.fill(); }
+  ctx.strokeStyle = '#fff'; ctx.fillStyle = '#fff'; ctx.lineWidth = s * 0.1; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const u = s * 0.27;
+  ctx.beginPath(); ctx.moveTo(x - u, y + u); ctx.lineTo(x - u, y); ctx.lineTo(x + u * 0.35, y); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x - u, y + u, s * 0.07, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x + u * 1.15, y); ctx.lineTo(x + u * 0.3, y - u * 0.55); ctx.lineTo(x + u * 0.3, y + u * 0.55); ctx.closePath(); ctx.lineWidth = s * 0.04; ctx.stroke(); ctx.fill();
+  ctx.restore();
+}
 function drawMenu() {
-  // 背景淡淡的箭头点阵
   if (!menuLayer) {
-    const L = makeLayer(W, H), saved = { cols, rows, cs, ox, oy, arrows, occ };
-    cols = menuDeco.cols; rows = menuDeco.rows; cs = Math.max(W, H) / Math.max(cols, rows) * 0.9;
-    ox = (W - cs * cols) / 2; oy = (H - cs * rows) / 2;
-    withCtx(L.g, () => { for (const a of menuDeco.arrows) { if (!a.pts) buildPts(a); drawArrowShape(a, 0, a.col || C.arrow, 0.12, null); } });
-    ({ cols, rows, cs, ox, oy, arrows, occ } = saved); menuLayer = L;
+    const M = 40, L = makeLayer(W + M * 2, H + M * 2), saved = { cols, rows, cs, ox, oy, arrows, occ };
+    cols = menuDeco.cols; rows = menuDeco.rows; cs = Math.max(W, H) / Math.max(cols, rows) * 0.92;
+    ox = (W + M * 2 - cs * cols) / 2; oy = (H + M * 2 - cs * rows) / 2;
+    withCtx(L.g, () => { for (const a of menuDeco.arrows) { if (!a.pts) buildPts(a); drawArrowShape(a, 0, acol(a), C.deco, null); } });
+    ({ cols, rows, cs, ox, oy, arrows, occ } = saved); L.M = M; menuLayer = L;
   }
-  ctx.drawImage(menuLayer.c, 0, 0, W, H);
+  ctx.drawImage(menuLayer.c, -menuLayer.M + Math.sin(now * 0.31) * 16, -menuLayer.M + Math.cos(now * 0.23) * 12, menuLayer.w, menuLayer.h);
 
-  const cy = H * 0.26;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(56, W * 0.13)}px ${FONT}`; ctx.fillText('箭无虚发', W / 2, cy);
-  // 标题下的飞行箭头
-  const t = (now % 2.2) / 2.2, ax = W / 2 - 120 + 240 * t, ay = cy + 48;
-  ctx.strokeStyle = C.arrow; ctx.fillStyle = C.arrow; ctx.lineWidth = 6; ctx.lineCap = 'round';
-  ctx.globalAlpha = Math.min(1, (1 - t) * 3);
-  ctx.beginPath(); ctx.moveTo(ax - 70, ay); ctx.lineTo(ax - 8, ay); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(ax + 8, ay); ctx.lineTo(ax - 10, ay - 11); ctx.lineTo(ax - 10, ay + 11); ctx.closePath(); ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = C.sub; ctx.font = `16px ${FONT}`;
-  ctx.fillText('箭头迷宫 · 点击箭头，让它冲出去', W / 2, cy + 84);
-  // 难度选择
-  const dw = Math.min(84, (W - 60) / 3), dy = cy + 108;
-  DIFFS.forEach((D, i) => button(W / 2 - dw * 1.5 - 10 + i * (dw + 10), dy, dw, 38, D.name, () => setDiff(i), i === diff ? 'primary' : ''));
-  const bw2 = Math.min(260, W - 60), by0 = Math.max(H * 0.55, dy + 62);
-  button(W / 2 - bw2 / 2, by0, bw2, 56, maxLevel > 1 ? `继续 · 第 ${maxLevel} 关` : '开始游戏', () => { score = 0; startLevel(maxLevel); }, 'primary');
-  if (maxLevel > 1) button(W / 2 - bw2 / 2, by0 + 70, bw2, 46, '从第 1 关开始', () => { score = 0; startLevel(1); });
+  // 纵向居中排布
+  const T = Math.min(52, W * 0.13), segW = Math.min(300, W - 56), bw2 = Math.min(280, W - 64);
+  const total = 72 + 18 + T + 16 + 22 + 30 + 44 + 26 + 28 + 60 + 6 + 40 + 18 + 78;
+  let y = Math.max(54, (H - 30 - total) / 2);
+  drawLogo(W / 2, y + 36, 72); y += 72 + 18;
+  // 标题：偏移色块投影 + 描边 + 深墨色字
+  const ty = y + T / 2; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `900 ${T}px ${FONT}`; ctx.lineJoin = 'round';
+  ctx.lineWidth = T * 0.2; ctx.strokeStyle = C.accent2; ctx.fillStyle = C.accent2; ctx.strokeText('箭无虚发', W / 2 + 3, ty + 4); ctx.fillText('箭无虚发', W / 2 + 3, ty + 4);
+  ctx.strokeStyle = C.card; ctx.strokeText('箭无虚发', W / 2, ty);
+  ctx.fillStyle = C.text; ctx.fillText('箭无虚发', W / 2, ty);
+  y += T + 16;
+  // 标题下飞过的小箭头
+  const t = (now % 2.4) / 2.4, ax = W / 2 - 90 + 180 * t, ay = y + 8;
+  ctx.globalAlpha = Math.min(1, (1 - t) * 3, t * 6); ctx.strokeStyle = C.accent; ctx.fillStyle = C.accent; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(ax - 46, ay); ctx.lineTo(ax - 6, ay); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax + 6, ay); ctx.lineTo(ax - 8, ay - 8); ctx.lineTo(ax - 8, ay + 8); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+  y += 22;
+  ctx.fillStyle = C.sub; ctx.font = `15px ${FONT}`; ctx.fillText('箭头迷宫 · 点一下，让它冲出去', W / 2, y + 6); y += 30;
+  // 难度：分段控件（滑块平滑移动）
+  const sx = (W - segW) / 2, sh = 44, iw = (segW - 8) / 3;
+  ctx.fillStyle = C.seg; rr(sx, y, segW, sh, sh / 2); ctx.fill();
+  const kx = sx + 4 + segAnim * iw; ctx.fillStyle = C.shadow; rr(kx, y + 6, iw, sh - 8, (sh - 8) / 2); ctx.fill();
+  ctx.fillStyle = C.card; rr(kx, y + 4, iw, sh - 8, (sh - 8) / 2); ctx.fill();
+  DIFFS.forEach((D, i) => {
+    buttons.push({ x: sx + 4 + i * iw, y, w: iw, h: sh, key: 'd' + i, cb: () => setDiff(i) });
+    ctx.fillStyle = i === diff ? C.text : C.sub; ctx.font = `${i === diff ? 800 : 500} 15px ${FONT}`;
+    ctx.fillText(D.name, sx + 4 + (i + 0.5) * iw, y + sh / 2 + 1);
+  });
+  y += sh + 10;
+  ctx.fillStyle = C.sub; ctx.font = `12px ${FONT}`; ctx.fillText(`${DIFF_TIP[diff]} · ${DIFFS[diff].hearts} 颗爱心 · 已到第 ${maxLevel} 关`, W / 2, y + 7); y += 16 + 28;
+  // 开始按钮（轻微呼吸）
+  ctx.save(); const br = 1 + Math.sin(now * 3) * 0.012; ctx.translate(W / 2, y + 30); ctx.scale(br, br); ctx.translate(-W / 2, -y - 30);
+  button(W / 2 - bw2 / 2, y, bw2, 60, maxLevel > 1 ? `继续 · 第 ${maxLevel} 关` : '开始游戏', () => { score = 0; startLevel(maxLevel); }, 'primary', 'play', 'start');
+  ctx.restore(); y += 66;
+  if (maxLevel > 1) button(W / 2 - 80, y, 160, 40, '从第 1 关开始', () => { score = 0; startLevel(1); }, 'ghost', 'restart', 'from1');
+  y += 40 + 18;
+  // 规则卡片
+  const cw = Math.min(330, W - 40), cx0 = (W - cw) / 2; ctx.globalAlpha = 0.85; card(cx0, y, cw, 78, 18); ctx.globalAlpha = 1;
   ctx.fillStyle = C.sub; ctx.font = `13px ${FONT}`; ctx.textAlign = 'center';
-  const lines = ['规则：箭头只能沿尖端方向飞出，前方被挡住会扣 1 颗爱心', '清空所有箭头即过关 · 爱心或时间用完则失败', `最高分 ${best}`];
-  lines.forEach((l, i) => ctx.fillText(l, W / 2, by0 + 140 + i * 22));
-  ctx.fillStyle = '#b7ad9a'; ctx.font = `11px ${FONT}`; ctx.fillText('受同类箭头消除玩法启发的非官方作品，与任何商业游戏无关', W / 2, H - 18);
+  ctx.fillText('箭头沿尖端方向飞出，前方被挡会扣 1 颗爱心', W / 2, y + 20);
+  ctx.fillText('清空所有箭头即过关 · 爱心或时间用完则失败', W / 2, y + 40);
+  ctx.font = `700 13px ${FONT}`; const bt = `最高分 ${best}`, btw = ctx.measureText(bt).width;
+  drawIcon('trophy', W / 2 - btw / 2 - 10, y + 60, 14, C.gold); ctx.fillStyle = C.text; ctx.fillText(bt, W / 2 + 8, y + 61);
+  ctx.fillStyle = C.faint; ctx.font = `11px ${FONT}`; ctx.fillText('受同类箭头消除玩法启发的非官方作品，与任何商业游戏无关', W / 2, H - 14);
+  // 右上角：日/夜主题切换
+  button(W - 58, 12, 44, 44, '', () => setTheme(theme === 'dark' ? 'light' : 'dark'), 'round', theme === 'dark' ? 'sun' : 'moon', 'theme');
 }
 
-function drawPanel(title, sub, lines, btns) {
-  ctx.fillStyle = 'rgba(45,48,71,.45)'; ctx.fillRect(0, 0, W, H);
-  const pw = Math.min(340, W - 40), ph = 300, px = (W - pw) / 2, py = (H - ph) / 2;
-  ctx.fillStyle = 'rgba(0,0,0,.12)'; rr(px, py + 6, pw, ph, 22); ctx.fill(); ctx.fillStyle = C.panel; rr(px, py, pw, ph, 22); ctx.fill();
+function panelGeom() { const pw = Math.min(330, W - 40), ph = 318; return { pw, ph, px: (W - pw) / 2, py: (H - ph) / 2 + 16 }; }
+function drawPanel(kind, title, sub, lines, btns) {
+  const age = now - panelAt, e = easeOutBack(clamp(age / 0.38, 0, 1));
+  ctx.fillStyle = C.dim; ctx.globalAlpha = clamp(age / 0.25, 0, 1); ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+  const { pw, ph, px, py } = panelGeom();
+  ctx.save(); ctx.globalAlpha = clamp(age / 0.18, 0, 1);
+  ctx.translate(W / 2, py + ph / 2); ctx.scale(0.86 + 0.14 * e, 0.86 + 0.14 * e); ctx.translate(-W / 2, -py - ph / 2);
+  ctx.fillStyle = C.shadow; rr(px, py + 8, pw, ph, 26); ctx.fill(); ctx.fillStyle = C.panel; rr(px, py, pw, ph, 26); ctx.fill();
+  // 顶部徽章图标（压在卡片上沿）
+  const g = ctx.createLinearGradient(W / 2 - 34, py - 34, W / 2 + 34, py + 34), cg = kind === 'win' ? ['#ffd166', '#f4a261'] : ['#ff8a8a', '#e63946'];
+  g.addColorStop(0, cg[0]); g.addColorStop(1, cg[1]);
+  ctx.fillStyle = C.panel; ctx.beginPath(); ctx.arc(W / 2, py, 40, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(W / 2, py, 33, 0, Math.PI * 2); ctx.fill();
+  drawIcon(kind === 'win' ? 'trophy' : loseReason === '时间到了' ? 'clock' : 'broken', W / 2, py + 1, 34, '#fff');
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = C.text; ctx.font = `900 32px ${FONT}`; ctx.fillText(title, W / 2, py + 48);
-  if (sub) sub(py);
-  ctx.fillStyle = C.sub; ctx.font = `15px ${FONT}`;
-  lines.forEach((l, i) => ctx.fillText(l, W / 2, py + 150 + i * 24));
-  const bw2 = (pw - 60) / 2;
-  btns.forEach((b, i) => button(px + 20 + i * (bw2 + 20), py + ph - 74, bw2, 50, b[0], b[1], i === btns.length - 1 ? 'primary' : ''));
+  ctx.fillStyle = C.text; ctx.font = `900 28px ${FONT}`; ctx.fillText(title, W / 2, py + 66);
+  sub(py);
+  ctx.fillStyle = C.sub; ctx.font = `14px ${FONT}`;
+  lines.forEach((l, i) => ctx.fillText(l, W / 2, py + 176 + i * 24));
+  ctx.restore();
+  const bw2 = (pw - 56) / 2;
+  btns.forEach((b, i) => button(px + 20 + i * (bw2 + 16), py + ph - 74, bw2, 52, b[0], b[1], i === btns.length - 1 ? 'primary' : 'card', b[2]));
 }
-function drawStar(x, y, r, on) {
+function starPath(x, y, r, rot) {
   ctx.beginPath();
-  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad); }
-  ctx.closePath(); ctx.fillStyle = on ? '#ffbe0b' : '#e4dccb'; ctx.fill();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (rot || 0) + i * Math.PI / 5, rad = i % 2 ? r * 0.48 : r; ctx.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad); }
+  ctx.closePath();
 }
-
+function drawStar(x, y, r, on, sc) {
+  starPath(x, y, r); ctx.fillStyle = C.track; ctx.fill();
+  if (!on || sc <= 0) return;
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.lineJoin = 'round';
+  starPath(0, 0, r); ctx.fillStyle = '#ffc93c'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#f2a20c'; ctx.stroke();
+  starPath(0, -r * 0.08, r * 0.55); ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fill();
+  ctx.restore();
+}
+const STAR_X = [-58, 0, 58], STAR_D = [0.3, 0.48, 0.66];
+let bgGrad = null;
 function render() {
   buttons = [];
-  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  const k = W + ',' + H + ',' + theme;
+  if (k !== bgKey) { bgKey = k; bgGrad = ctx.createLinearGradient(0, 0, 0, H); bgGrad.addColorStop(0, C.bg); bgGrad.addColorStop(1, C.bg2); }
+  ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
   if (state === 'menu') drawMenu();
   else {
     drawPlay();
     if (state === 'win') {
-      drawPanel('过关！', (py) => { for (let i = 0; i < 3; i++) drawStar(W / 2 - 50 + i * 50, py + 100, i === 1 ? 24 : 20, i < lastResult.stars); },
-        [`本关得分 ${levelScore}（含剩余时间奖励 ${lastResult.bonus}）`, `用时 ${lastResult.time.toFixed(1)} 秒 · 总分 ${score}`],
-        [['重玩', () => { score = Math.max(0, score - levelScore); startLevel(level); }], ['下一关', () => startLevel(level + 1)]]);
+      drawPanel('win', '过关！', (py) => { const age = now - panelAt;
+          for (let i = 0; i < 3; i++) { const p = clamp((age - STAR_D[i]) / 0.32, 0, 1); drawStar(W / 2 + STAR_X[i], py + 122 - (i === 1 ? 6 : 0), i === 1 ? 26 : 21, i < lastResult.stars, p > 0 ? easeOutBack(p) : 0); } },
+        [`本关得分 ${levelScore}（时间奖励 +${lastResult.bonus}）`, `用时 ${lastResult.time.toFixed(1)} 秒 · 总分 ${score}`],
+        [['重玩', () => { score = Math.max(0, score - levelScore); startLevel(level); }, 'restart'], ['下一关', () => startLevel(level + 1), 'next']]);
     } else if (state === 'lose') {
-      drawPanel('挑战失败', (py) => { ctx.fillStyle = C.red; ctx.font = `bold 18px ${FONT}`; ctx.fillText(loseReason, W / 2, py + 98); },
+      drawPanel('lose', '挑战失败', (py) => {
+          ctx.font = `700 15px ${FONT}`; const tw = ctx.measureText(loseReason).width + 32;
+          ctx.fillStyle = C.redSoft; rr(W / 2 - tw / 2, py + 102, tw, 32, 16); ctx.fill();
+          ctx.fillStyle = C.red; ctx.fillText(loseReason, W / 2, py + 119); },
         [loseReason === '时间到了' ? '下次会多给你一点时间～' : '先找前方畅通的箭头再点哦', `总分 ${score} · 最高分 ${best}`],
-        [['主页', () => { state = 'menu'; }], ['再试一次', () => { score = Math.max(0, score - levelScore); startLevel(level); }]]);
+        [['主页', () => { state = 'menu'; }, 'home'], ['再试一次', () => { score = Math.max(0, score - levelScore); startLevel(level); }, 'restart']]);
     }
   }
   drawFX();
@@ -780,7 +998,9 @@ cv.addEventListener('pointerdown', e => {
   e.preventDefault(); dirty = true;
   unlockAudio();
   const rc0 = cv.getBoundingClientRect(); const x = e.clientX - rc0.left, y = e.clientY - rc0.top;
-  for (const b of buttons) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { sfx.click(); b.cb(); return; }
+  for (const b of buttons) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { if (btnBusy) return; sfx.click(); pressK = b.key; pressAt = now; btnBusy = true;
+    // 先播放按下缩放，再执行（90ms，人眼几乎无感）
+    setTimeout(() => { btnBusy = false; try { b.cb(); } finally { dirty = true; } }, 90); return; }
   if (state === 'play' && endTimer === 0) tapArrow(arrowAt(x, y));
 });
 cv.addEventListener('pointermove', e => {
@@ -827,7 +1047,11 @@ if ('serviceWorker' in navigator) {
 let last = performance.now(), lastRender = 0, rafId = 0, running = false, lastFrameAt = 0;
 function animating() {
   if (particles.length || floaters.length || toast || shake > 0 || flash > 0 || dashFlash > 0) return true;
+  if (pressK && now - pressAt < 0.22) return true;
+  if (segAnim !== diff) return true;
+  if (state !== 'play' && state !== 'menu' && now - panelAt < 1.3) return true;
   if (state !== 'play') return false;
+  if (combo >= 2 && now - comboAt < 0.5) return true;
   if (rainbowQueue.length || endTimer > 0 || hintId >= 0) return true;
   for (const a of arrows) if (a.anim || a.hitFlash > 0) return true;
   return false;
@@ -858,7 +1082,7 @@ addEventListener('pageshow', () => { resize(false); stopLoop(); startLoop(); });
 addEventListener('focus', () => { if (!document.hidden) startLoop(); });
 // 看门狗：iOS 主屏幕模式偶发 rAF 停摆，1.5 秒没帧就重启循环
 setInterval(() => { if (!document.hidden && running && performance.now() - lastFrameAt > 1500) { stopLoop(); startLoop(); } }, 1000);
-resize(true); startLoop();
+applyThemeChrome(); resize(true); startLoop();
 
 // 调试/测试接口
 window.__game = {
@@ -873,7 +1097,7 @@ window.__game = {
   cellCenter(id) { const a = arrows[id]; const h = a.path[a.path.length - 1]; return cellXY(h[0], h[1]); },
   freeIds() { return arrows.filter(a => a.alive && canExit(a).ok).map(a => a.id); },
   blockedIds() { return arrows.filter(a => a.alive && !canExit(a).ok).map(a => a.id); },
-  get diff() { return diff; }, setDiff(d) { setDiff(d); }, get shape() { return shapeName; }, get cs() { return cs; },
+  get diff() { return diff; }, setDiff(d) { setDiff(d); }, get theme() { return theme; }, setTheme(t) { setTheme(t); }, get shape() { return shapeName; }, get cs() { return cs; },
   // 用“每轮把所有可飞箭头一起放飞”的贪心模拟验证必有解；同时统计开局可飞数与解题深度（轮数）
   solvable(n, d, cap) { const g = genLevel(n, d == null ? 1 : d, cap); const al = g.arrows.map(() => true); const occ2 = g.occ; let rounds = 0;
     const ce = (a) => { const [hx, hy] = a.path[a.path.length - 1], [dx, dy] = DIRS[a.dir]; let x = hx + dx, y = hy + dy;
