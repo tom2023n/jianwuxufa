@@ -45,13 +45,13 @@ const PALETTE_DARK = ['#f2876b', '#f0b52e', '#6fc24c', '#2fc2ae', '#5aaaf0', '#8
 const THEMES = {
   light: { bg:'#f3efe6', bg2:'#ebe4d6', board:'#fdfaf4', board2:'#f6f0e4', boardEdge:'rgba(110,90,60,.13)', speck:'rgba(110,90,60,.05)', dot:'#d8cebd',
     arrow:'#2d3047', text:'#2b2d42', sub:'#857d6f', faint:'#b5ab98', card:'#fffdf9', cardEdge:'rgba(43,45,66,.07)', shadow:'rgba(90,70,40,.10)',
-    track:'#e8e0cf', seg:'#e7dfcd', red:'#e63946', redSoft:'rgba(230,57,70,.10)', green:'#2a9d8f', gold:'#f4a261', accent:'#e8603f', accent2:'#f6a04d',
+    track:'#e8e0cf', seg:'#e7dfcd', segOn:'#fffdf9', red:'#e63946', redSoft:'rgba(230,57,70,.10)', green:'#2a9d8f', gold:'#f4a261', accent:'#e8603f', accent2:'#f6a04d',
     accentShadow:'rgba(232,96,63,.28)', heart:'#ef476f', heartOff:'#e2d9c8', panel:'#fffdf9', blue:'#3a86ff', clockBg:'#e7f0ff', dim:'rgba(43,45,66,.45)',
-    ink:'#2b2d42', inkText:'#ffffff', hover:'rgba(45,48,71,.28)', toast:'rgba(43,45,66,.92)', toastText:'#fff', deco:0.12,
+    ink:'#2b2d42', inkText:'#ffffff', hover:'rgba(45,48,71,.28)', toast:'rgba(43,45,66,.92)', toastText:'#fff', deco:0.10,
     tGood:['#4cc9a4','#2a9d8f'], tMid:['#f9d56e','#f4a261'], tLow:['#ff8a7a','#e63946'], pal:PALETTE },
   dark: { bg:'#191b26', bg2:'#11131b', board:'#272a3a', board2:'#222534', boardEdge:'rgba(255,255,255,.07)', speck:'rgba(255,255,255,.025)', dot:'#3f4458',
     arrow:'#e9e6f0', text:'#eceaf3', sub:'#9c9aae', faint:'#5c5f75', card:'#242737', cardEdge:'rgba(255,255,255,.07)', shadow:'rgba(0,0,0,.35)',
-    track:'#33374a', seg:'#2a2d3e', red:'#ff5a67', redSoft:'rgba(255,90,103,.14)', green:'#3cc2b2', gold:'#ffb36b', accent:'#f06a48', accent2:'#ffa95a',
+    track:'#33374a', seg:'#2a2d3e', segOn:'#41455e', red:'#ff5a67', redSoft:'rgba(255,90,103,.14)', green:'#3cc2b2', gold:'#ffb36b', accent:'#f06a48', accent2:'#ffa95a',
     accentShadow:'rgba(240,106,72,.30)', heart:'#ff5c86', heartOff:'#3f4357', panel:'#242737', blue:'#5b9bff', clockBg:'#1f2b45', dim:'rgba(5,6,12,.6)',
     ink:'#eceaf3', inkText:'#1b1d2a', hover:'rgba(233,230,240,.3)', toast:'rgba(236,234,243,.94)', toastText:'#1b1d2a', deco:0.10,
     tGood:['#4fd6b2','#2fae9e'], tMid:['#ffd76e','#ffa95a'], tLow:['#ff8a7a','#ff4d5e'], pal:PALETTE_DARK }
@@ -618,9 +618,12 @@ function drawIcon(name, x, y, s, col, bgc) {
     ctx.beginPath(); ctx.moveTo(-h * 0.62, -h * 0.25); ctx.lineTo(-h * 0.62, h * 0.8); ctx.lineTo(h * 0.62, h * 0.8); ctx.lineTo(h * 0.62, -h * 0.25); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-h * 0.18, h * 0.8); ctx.lineTo(-h * 0.18, h * 0.3); ctx.lineTo(h * 0.18, h * 0.3); ctx.lineTo(h * 0.18, h * 0.8); ctx.stroke();
   } else if (name === 'restart') {
-    ctx.beginPath(); ctx.arc(0, 0, h * 0.72, -Math.PI * 0.35, Math.PI * 1.45); ctx.stroke();
-    const a = -Math.PI * 0.35, ex = Math.cos(a) * h * 0.72, ey = Math.sin(a) * h * 0.72;
-    ctx.beginPath(); ctx.moveTo(ex + h * 0.42, ey - h * 0.02); ctx.lineTo(ex - h * 0.02, ey - h * 0.02); ctx.lineTo(ex + h * 0.12, ey - h * 0.44); ctx.stroke();
+    // 刷新图标：右上留缺口，顶端箭头指向右
+    const R = h * 0.68, a1 = Math.PI * 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, R, -Math.PI * 0.12, a1 - 0.25); ctx.stroke();
+    const ex = Math.cos(a1 - 0.25) * R, ey = Math.sin(a1 - 0.25) * R, tx = -Math.sin(a1 - 0.25), ty = Math.cos(a1 - 0.25), nx = Math.cos(a1 - 0.25), ny = Math.sin(a1 - 0.25);
+    ctx.beginPath(); ctx.moveTo(ex + tx * h * 0.42, ey + ty * h * 0.42); ctx.lineTo(ex + nx * h * 0.3 - tx * h * 0.05, ey + ny * h * 0.3 - ty * h * 0.05);
+    ctx.lineTo(ex - nx * h * 0.3 - tx * h * 0.05, ey - ny * h * 0.3 - ty * h * 0.05); ctx.closePath(); ctx.lineWidth = s * 0.06; ctx.stroke(); ctx.fill();
   } else if (name === 'bulb') {
     ctx.beginPath(); ctx.arc(0, -h * 0.2, h * 0.55, Math.PI * 0.8, Math.PI * 2.2); ctx.lineTo(h * 0.25, h * 0.45); ctx.lineTo(-h * 0.25, h * 0.45); ctx.closePath(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-h * 0.22, h * 0.75); ctx.lineTo(h * 0.22, h * 0.75); ctx.stroke();
@@ -720,9 +723,9 @@ function drawHUD() {
   ctx.fillStyle = C.sub; ctx.font = `12px ${FONT}`; ctx.fillText(t2, 30, top + 35);
   // 右：得分
   ctx.font = `800 18px ${FONT}`; const sv = String(score), rw = Math.max(76, ctx.measureText(sv).width + 32), rx = W - 14 - rw;
-  card(rx, top, rw, ch, 18); ctx.textAlign = 'right';
-  ctx.fillStyle = C.sub; ctx.font = `12px ${FONT}`; ctx.fillText('得分', W - 30, top + 16);
-  ctx.fillStyle = C.text; ctx.font = `800 18px ${FONT}`; ctx.fillText(sv, W - 30, top + 33);
+  card(rx, top, rw, ch, 18); ctx.textAlign = 'center';
+  ctx.fillStyle = C.sub; ctx.font = `12px ${FONT}`; ctx.fillText('得分', rx + rw / 2, top + 16);
+  ctx.fillStyle = C.text; ctx.font = `800 18px ${FONT}`; ctx.fillText(sv, rx + rw / 2, top + 33);
   // 中：爱心胶囊（夹在左右卡片之间居中）
   const gapL = 14 + lw + 8, gapR = rx - 8, sp = clamp((gapR - gapL - 20) / maxHearts, 18, 28), hw = sp * maxHearts + 14;
   const hx = clamp(W / 2 - hw / 2, gapL, gapR - hw);
@@ -746,7 +749,8 @@ function drawHUD() {
   const ry = 104, left = arrows.filter(a => a.alive).length;
   drawIcon('arrow', 24, ry, 13, C.sub); ctx.fillStyle = C.sub; ctx.font = `13px ${FONT}`; ctx.textAlign = 'left'; ctx.fillText(`剩余 ${left}`, 36, ry + 1);
   const dw = 54, dx = W - 14 - dw, dr = clamp(dash / DASH_MAX, 0, 1);
-  drawIcon('bolt', dx - 30, ry, 12, dr > 0 ? C.accent : C.faint); ctx.fillStyle = C.sub; ctx.textAlign = 'right'; ctx.fillText('冲刺', dx - 6, ry + 1);
+  ctx.fillStyle = C.sub; ctx.textAlign = 'right'; ctx.fillText('冲刺', dx - 6, ry + 1);
+  drawIcon('bolt', dx - 14 - ctx.measureText('冲刺').width, ry, 12, dr > 0 ? C.accent : C.faint);
   ctx.fillStyle = C.track; rr(dx, ry - 3, dw, 6, 3); ctx.fill();
   if (dr > 0) { ctx.fillStyle = accentGrad(dx, 0, dw, 0); rr(dx, ry - 3, Math.max(6, dw * dr), 6, 3); ctx.fill(); }
   if (combo >= 2 && elapsed - lastClear < 1.4) {
@@ -885,7 +889,7 @@ function drawMenu() {
   const sx = (W - segW) / 2, sh = 44, iw = (segW - 8) / 3;
   ctx.fillStyle = C.seg; rr(sx, y, segW, sh, sh / 2); ctx.fill();
   const kx = sx + 4 + segAnim * iw; ctx.fillStyle = C.shadow; rr(kx, y + 6, iw, sh - 8, (sh - 8) / 2); ctx.fill();
-  ctx.fillStyle = C.card; rr(kx, y + 4, iw, sh - 8, (sh - 8) / 2); ctx.fill();
+  ctx.fillStyle = C.segOn; rr(kx, y + 4, iw, sh - 8, (sh - 8) / 2); ctx.fill();
   DIFFS.forEach((D, i) => {
     buttons.push({ x: sx + 4 + i * iw, y, w: iw, h: sh, key: 'd' + i, cb: () => setDiff(i) });
     ctx.fillStyle = i === diff ? C.text : C.sub; ctx.font = `${i === diff ? 800 : 500} 15px ${FONT}`;
