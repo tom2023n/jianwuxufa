@@ -1065,7 +1065,7 @@ function frame(t) {
   t = performance.now(); lastFrameAt = t;
   const dt = Math.min(0.05, Math.max(0, (t - last) / 1000)); last = t;
   update(dt);
-  const interval = animating() ? 0 : state === 'menu' ? 33 : state === 'play' ? (timeLeft / timeTotal <= 0.2 ? 50 : 100) : 250;
+  const interval = animating() ? 0 : state === 'menu' ? 50 : state === 'play' ? (timeLeft / timeTotal <= 0.2 ? 50 : 100) : 250;
   if (dirty || t - lastRender >= interval - 1) { render(); lastRender = t; dirty = false; }
   rafId = requestAnimationFrame(frame);
 }
