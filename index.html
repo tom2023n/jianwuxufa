@@ -39,6 +39,27 @@ const DIRS = [[0,-1],[1,0],[0,1],[-1,0]]; // 上 右 下 左 (dx,dy)
 const C = { bg:'#f3efe6', board:'#fbf8f2', dot:'#d6cdbb', arrow:'#2d3047', red:'#e63946', green:'#2a9d8f',
   gold:'#f4a261', text:'#2d3047', sub:'#8a8170', panel:'#fffaf0', heart:'#ef476f', blue:'#3a86ff' };
 const DASH_MAX = 8;
+// 箭头调色板：适配米色底、饱和度适中；相邻色相同时明度也拉开，色弱也能分辨
+const PALETTE = ['#e76f51', '#d99a00', '#4f9a2c', '#17998a', '#2f86d0', '#4a4fc0', '#9447c4', '#d64f95', '#2d3047', '#a0612a'];
+// 给箭头上色：同一棋盘里相邻（格子挨着）的箭头不同色，并尽量平均使用各颜色
+function colorArrows(list, occArr, ncols, nrows, seed) {
+  const nb = list.map(() => new Set());
+  for (let y = 0; y < nrows; y++) for (let x = 0; x < ncols; x++) {
+    const o = occArr[y * ncols + x]; if (o < 0) continue;
+    for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+      const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= ncols || Y >= nrows) continue;
+      const p = occArr[Y * ncols + X]; if (p >= 0 && p !== o) { nb[o].add(p); nb[p].add(o); }
+    }
+  }
+  const used = PALETTE.map(() => 0), off = (seed >>> 0) % PALETTE.length;
+  list.forEach((a, i) => {
+    const bad = new Set(); for (const j of nb[i]) if (list[j].ci != null) bad.add(list[j].ci);
+    let best = -1;
+    for (let k = 0; k < PALETTE.length; k++) { const c = (k + off + i * 3) % PALETTE.length; if (bad.has(c)) continue; if (best < 0 || used[c] < used[best]) best = c; }
+    if (best < 0) best = (i + off) % PALETTE.length;
+    a.ci = best; a.col = PALETTE[best]; used[best]++;
+  });
+}
 
 // ---------- 存档 ----------
 let save = {};
@@ -292,7 +313,8 @@ function startLevel(n) {
   level = n;
   const g = genLevel(n, diff, screenCap());
   cols = g.cols; rows = g.rows; arrows = g.arrows; occ = g.occ; clocks = g.clocks; mask = g.mask; shapeName = g.shape;
-  arrows.forEach((a, i) => { a.id = i; a.alive = true; a.anim = null; a.gone = false; buildPts(a); });
+  arrows.forEach((a, i) => { a.id = i; a.alive = true; a.anim = null; a.gone = false; a.ci = null; buildPts(a); });
+  colorArrows(arrows, occ, cols, rows, n * 31 + diff * 7);
   maxHearts = DIFFS[diff].hearts; hearts = maxHearts; levelScore = 0; combo = 0; lastClear = -9; dash = 0; hintId = -1; elapsed = 0;
   particles = []; floaters = []; rainbowQueue = []; endTimer = 0; shake = 0; flash = 0; toast = null;
   const D = DIFFS[diff];
@@ -322,7 +344,7 @@ function launch(a, auto) {
   const [hx, hy] = a.path[a.path.length - 1];
   const [px, py] = cellXY(hx, hy);
   floaters.push({ x: px, y: py - cs * 0.3, text: '+' + pts + (combo >= 3 ? '  连击×' + combo : ''), life: 0.9, col: combo >= 3 ? C.gold : C.green });
-  burst(px, py, a.rainbow ? null : C.arrow, a.rainbow ? 22 : 10);
+  burst(px, py, a.rainbow ? null : (a.col || C.arrow), a.rainbow ? 22 : 10);
   sfx.fly(combo);
   // 时钟道具
   const [dx, dy] = DIRS[a.dir]; let x = hx + dx, y = hy + dy;
@@ -493,7 +515,7 @@ function dirAt(pts, t) {
   const i = clamp(Math.ceil(t) - 1, 0, pts.length - 2);
   return [pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]];
 }
-function drawArrowShape(a, s, color, alpha, glow) {
+function drawArrowShape(a, s, color, alpha, under) {
   const t0 = s, t1 = s + a.L, pts = a.pts;
   const list = [ptAt(pts, t0)];
   for (let i = Math.floor(t0) + 1; i < t1; i++) list.push(pts[i]);
@@ -507,25 +529,30 @@ function drawArrowShape(a, s, color, alpha, glow) {
     for (let k = 0; k <= 5; k++) g.addColorStop(k / 5, `hsl(${(h0 + k * 60) % 360},85%,55%)`);
     stroke = g;
   }
-  if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = cs * 0.5; }
-  ctx.strokeStyle = stroke; ctx.fillStyle = stroke;
-  ctx.lineWidth = Math.max(3, cs * 0.2); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]);
   const [ddx, ddy] = dirAt(pts, t1);
   const head = P[P.length - 1];
-  const hl = cs * 0.34, hw = cs * 0.26;
-  // 线身止于箭头底部，避免穿出尖端
-  for (let i = 1; i < P.length - 1; i++) ctx.lineTo(P[i][0], P[i][1]);
-  ctx.lineTo(head[0] - ddx * hl * 0.6, head[1] - ddy * hl * 0.6);
-  ctx.stroke();
-  // 尖端三角
+  const hl = cs * 0.34, hw = cs * 0.26, lw = Math.max(3, cs * 0.2), lw2 = Math.max(2, cs * 0.08), tr = Math.max(2, cs * 0.12);
   const tipX = head[0] + ddx * hl * 0.55, tipY = head[1] + ddy * hl * 0.55;
   const bx = head[0] - ddx * hl * 0.55, by = head[1] - ddy * hl * 0.55;
-  ctx.beginPath(); ctx.moveTo(tipX, tipY);
-  ctx.lineTo(bx - ddy * hw, by + ddx * hw); ctx.lineTo(bx + ddy * hw, by - ddx * hw); ctx.closePath();
-  ctx.lineWidth = Math.max(2, cs * 0.08); ctx.stroke(); ctx.fill();
-  // 尾端小圆点
-  ctx.beginPath(); ctx.arc(P[0][0], P[0][1], Math.max(2, cs * 0.12), 0, Math.PI * 2); ctx.fill();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // 画一遍箭头；extra>0 时作为外描边（提示光圈 / 撞墙描边），不用 shadowBlur
+  const pass = (col, extra) => {
+    ctx.strokeStyle = col; ctx.fillStyle = col;
+    ctx.lineWidth = lw + extra * 2;
+    ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]);
+    // 线身止于箭头底部，避免穿出尖端
+    for (let i = 1; i < P.length - 1; i++) ctx.lineTo(P[i][0], P[i][1]);
+    ctx.lineTo(head[0] - ddx * hl * 0.6, head[1] - ddy * hl * 0.6);
+    ctx.stroke();
+    // 尖端三角
+    ctx.beginPath(); ctx.moveTo(tipX, tipY);
+    ctx.lineTo(bx - ddy * hw, by + ddx * hw); ctx.lineTo(bx + ddy * hw, by - ddx * hw); ctx.closePath();
+    ctx.lineWidth = lw2 + extra * 2; ctx.stroke(); ctx.fill();
+    // 尾端小圆点
+    ctx.beginPath(); ctx.arc(P[0][0], P[0][1], tr + extra, 0, Math.PI * 2); ctx.fill();
+  };
+  if (under) { ctx.globalAlpha = alpha * (under.a == null ? 1 : under.a); pass(under.col, under.w); ctx.globalAlpha = alpha; }
+  pass(stroke, 0);
   ctx.restore();
 }
 
@@ -604,17 +631,24 @@ function drawBoard() {
   // 箭头：静止的先画，飞行的后画
   for (const a of arrows) {
     if (a.gone || (a.anim && a.anim.type === 'fly')) continue;
-    let s = 0, color = C.arrow, glow = null;
-    if (a.anim && a.anim.type === 'bump') { const p = a.anim.t / a.anim.dur; s = a.anim.dist * Math.sin(Math.PI * p); color = C.red; }
-    if (a.hitFlash > 0) color = C.red;
-    if (a.id === hintId) { glow = C.green; color = Math.sin(now * 8) > 0 ? C.green : C.arrow; }
-    if (a.id === hoverId && pointerType === 'mouse' && color === C.arrow) color = '#4a4e7a';
-    drawArrowShape(a, s, color, 1, glow);
+    const own = a.col || C.arrow, ow = Math.max(2, cs * 0.07);
+    let s = 0, color = own, under = null;
+    // 撞墙/挡路：变红闪烁 + 深色外描边（箭头本身是暖色时也一眼可辨），撞墙的那支还会前后抖动
+    const bumping = a.anim && a.anim.type === 'bump';
+    if (bumping) { const p = a.anim.t / a.anim.dur; s = a.anim.dist * Math.sin(Math.PI * p); }
+    if (bumping || a.hitFlash > 0) {
+      const on = bumping || Math.sin(a.hitFlash * 40) > -0.3;
+      color = on ? C.red : own; under = { col: C.text, w: ow };
+    } else if (a.id === hintId) {
+      // 提示：金色光圈脉动 + 白色内圈，不用模糊阴影
+      under = { col: '#ffbf1f', w: ow * (1.6 + Math.sin(now * 8) * 0.6), a: 0.9 };
+    } else if (a.id === hoverId && pointerType === 'mouse') under = { col: 'rgba(45,48,71,.28)', w: ow * 0.8 };
+    drawArrowShape(a, s, color, 1, under);
   }
   for (const a of arrows) {
     if (!a.anim || a.anim.type !== 'fly') continue;
     const s = a.anim.s, alpha = clamp(1 - (s - a.exitS) / (a.L + 3), 0, 1);
-    drawArrowShape(a, s, C.arrow, alpha, null);
+    drawArrowShape(a, s, a.col || C.arrow, alpha, null);
   }
 }
 
@@ -649,14 +683,14 @@ function drawFX() {
 }
 
 // 主菜单的装饰箭头
-const menuDeco = (() => { const g = genLevel(5, 0, { mc: 10, mr: 13 }); g.arrows.forEach((a, i) => { a.id = i; a.alive = true; }); return g; })();
+const menuDeco = (() => { const g = genLevel(5, 0, { mc: 10, mr: 13 }); g.arrows.forEach((a, i) => { a.id = i; a.alive = true; }); colorArrows(g.arrows, g.occ, g.cols, g.rows, 3); return g; })();
 function drawMenu() {
   // 背景淡淡的箭头点阵
   if (!menuLayer) {
     const L = makeLayer(W, H), saved = { cols, rows, cs, ox, oy, arrows, occ };
     cols = menuDeco.cols; rows = menuDeco.rows; cs = Math.max(W, H) / Math.max(cols, rows) * 0.9;
     ox = (W - cs * cols) / 2; oy = (H - cs * rows) / 2;
-    withCtx(L.g, () => { for (const a of menuDeco.arrows) { if (!a.pts) buildPts(a); drawArrowShape(a, 0, C.arrow, 0.07, null); } });
+    withCtx(L.g, () => { for (const a of menuDeco.arrows) { if (!a.pts) buildPts(a); drawArrowShape(a, 0, a.col || C.arrow, 0.12, null); } });
     ({ cols, rows, cs, ox, oy, arrows, occ } = saved); menuLayer = L;
   }
   ctx.drawImage(menuLayer.c, 0, 0, W, H);
@@ -828,6 +862,9 @@ resize(true); startLoop();
 
 // 调试/测试接口
 window.__game = {
+  // 测试：相邻同色箭头对数、使用的颜色数
+  colorCheck() { let same = 0; const seen = new Set(); for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) { const o = occ[cid(x, y)]; if (o < 0) continue; seen.add(arrows[o].ci);
+    for (const [dx, dy] of [[1, 0], [0, 1]]) { if (x + dx >= cols || y + dy >= rows) continue; const p = occ[cid(x + dx, y + dy)]; if (p >= 0 && p !== o && arrows[p].ci === arrows[o].ci) same++; } } return { same, colors: seen.size, arrows: arrows.length }; },
   get state() { return state; }, get level() { return level; }, get hearts() { return hearts; },
   get left() { return arrows.filter(a => a.alive).length; }, get score() { return score; },
   start(n) { score = 0; startLevel(n || 1); },
