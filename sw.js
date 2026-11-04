@@ -1,5 +1,5 @@
 /* 箭无虚发 · Service Worker：缓存全部文件，支持离线游玩 */
-const CACHE = 'jianwuxufa-v1';
+const CACHE = 'jianwuxufa-v2';   // 每次发布新版改这里，旧缓存会在 activate 时清掉
 const ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,7 @@ const ASSETS = [
   './icons/icon-512.png'
 ];
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
