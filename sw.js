@@ -1,5 +1,5 @@
 /* 箭无虚发 · Service Worker：缓存全部文件，支持离线游玩 */
-const CACHE = 'jianwuxufa-v5';   // 每次发布新版改这里，旧缓存会在 activate 时清掉
+const CACHE = 'jianwuxufa-v6';   // 每次发布新版改这里，旧缓存会在 activate 时清掉
 const ASSETS = [
   './',
   './index.html',
