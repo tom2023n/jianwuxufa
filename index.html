@@ -636,7 +636,7 @@ function arrowGeom(a, s) {
   let [ddx, ddy] = dirAt(pts, t1);
   const dlen = Math.hypot(ddx, ddy) || 1;
   const ux = ddx / dlen, uy = ddy / dlen;
-  const tube = Math.max(7.5, cs * 0.5);
+  const tube = Math.max(4.5, cs * 0.30); // 上一版管径的 60%，头随管径同比缩小
   const headLen = tube * 1.34, headHalf = tube * 0.98, sw = tube * 0.44;
   const pathLen = headLen - sw * 0.45, pathHalf = headHalf - sw * 0.45;
   const head = P[P.length - 1];
