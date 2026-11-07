@@ -37,10 +37,10 @@ const mainCtx = ctx;
 const FONT = '"PingFang SC","Microsoft YaHei","Noto Sans CJK SC","Noto Sans SC","WenQuanYi Micro Hei",sans-serif';
 const DIRS = [[0,-1],[1,0],[0,1],[-1,0]]; // 上 右 下 左 (dx,dy)
 const DASH_MAX = 8;
-// 箭头调色板：适配米色底、饱和度适中；相邻色相同时明度也拉开，色弱也能分辨
-const PALETTE = ['#e76f51', '#d99a00', '#4f9a2c', '#17998a', '#2f86d0', '#4a4fc0', '#9447c4', '#d64f95', '#2d3047', '#a0612a'];
-// 深色模式调色板：同色相、提亮，深墨色换成米白
-const PALETTE_DARK = ['#f2876b', '#f0b52e', '#6fc24c', '#2fc2ae', '#5aaaf0', '#8287f2', '#b67de2', '#ee77b2', '#e9e6f0', '#cf8f55'];
+// 糖果色圆管：高饱和、相邻色明度错开，浅底上仍分得清
+const PALETTE = ['#ff5640', '#ff8e1c', '#f0b000', '#67d134', '#18b56a', '#12c3d4', '#2f96ff', '#4554f0', '#8d3eef', '#ff4b95'];
+// 深色模式：同色相再提亮一档
+const PALETTE_DARK = ['#ff8a74', '#ffb14d', '#ffd04a', '#8ee86a', '#45d888', '#45e4ea', '#74beff', '#8d96ff', '#c08aff', '#ff86b8'];
 // 统一配色：米色底 + 深墨蓝文字 + 珊瑚/橙主色；深色模式同一套语义色
 const THEMES = {
   light: { bg:'#f3efe6', bg2:'#ebe4d6', board:'#fdfaf4', board2:'#f6f0e4', boardEdge:'rgba(110,90,60,.13)', speck:'rgba(110,90,60,.05)', dot:'#d8cebd',
@@ -94,7 +94,7 @@ function applyThemeChrome() {
   document.documentElement.style.background = document.body.style.background = C.bg;
   const m = document.querySelector('meta[name=theme-color]'); if (m) m.setAttribute('content', C.bg);
 }
-function setTheme(t) { theme = t === 'dark' ? 'dark' : 'light'; Object.assign(C, THEMES[theme]); boardLayer = null; menuLayer = null; bgKey = ''; applyThemeChrome(); persist(); dirty = true; }
+function setTheme(t) { theme = t === 'dark' ? 'dark' : 'light'; Object.assign(C, THEMES[theme]); boardLayer = null; menuLayer = null; arrowLayer = null; bgKey = ''; applyThemeChrome(); persist(); dirty = true; }
 function setDiff(d) { prog[diff] = maxLevel; diff = d; maxLevel = prog[diff] || 1; persist(); }
 
 // ---------- 工具 ----------
@@ -460,10 +460,11 @@ function computeBoard() {
   const aw = W - 36, ah = H - top - bot - 28;
   cs = Math.max(8, Math.min(aw / cols, ah / rows, 62));
   bw = cs * cols; bh = cs * rows; ox = (W - bw) / 2; oy = top + 14 + (ah - bh) / 2;
-  boardLayer = null;
+  boardLayer = null; arrowLayer = null;
 }
-// 离屏缓存层：棋盘底板+点阵（静态，只在开局/尺寸变化时画一次）、主菜单背景箭头
-let boardLayer = null, menuLayer = null, dirty = true, bgKey = '';
+// 离屏缓存层：棋盘底板+点阵、静止箭头（飞行的那支另画）、主菜单背景箭头
+let boardLayer = null, menuLayer = null, arrowLayer = null, dirty = true, bgKey = '';
+let tubeScratch = null, tubeScratchCtx = null;
 function makeLayer(w, h) {
   const c = document.createElement('canvas'); c.width = Math.max(1, Math.ceil(w * DPR)); c.height = Math.max(1, Math.ceil(h * DPR));
   const g = c.getContext('2d'); g.setTransform(DPR, 0, 0, DPR, 0, 0); return { c, g, w, h };
@@ -566,45 +567,224 @@ function dirAt(pts, t) {
   const i = clamp(Math.ceil(t) - 1, 0, pts.length - 2);
   return [pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]];
 }
-function drawArrowShape(a, s, color, alpha, under) {
+// 糖果圆管：光从左上来。整段圆角描边错位叠出高光和暗边，弯折不断开；尖端是圆角立体三角。
+// 画在箭头自己的小画布上再贴回，不用 shadowBlur。
+const LIGHTX = -0.62, LIGHTY = -0.78;
+function mixCss(hex, to, t) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return `rgb(${Math.round(r + (to - r) * t)},${Math.round(g + (to - g) * t)},${Math.round(b + (to - b) * t)})`;
+}
+function tubeCols(hex) {
+  return { edge: mixCss(hex, 255, 0.84), lite: mixCss(hex, 255, 0.48), base: hex, mid: mixCss(hex, 0, 0.2), dark: mixCss(hex, 0, 0.44) };
+}
+// 把折线拐角收成圆弧，高光顺着弯走，而不会在格子交界鼓出圆球
+function roundCorners(pts, radius) {
+  if (pts.length < 3) return pts.map(p => p.slice());
+  const out = [pts[0].slice()];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const ax = pts[i][0] - pts[i - 1][0], ay = pts[i][1] - pts[i - 1][1];
+    const bx = pts[i + 1][0] - pts[i][0], by = pts[i + 1][1] - pts[i][1];
+    const la = Math.hypot(ax, ay) || 1, lb = Math.hypot(bx, by) || 1;
+    const uax = ax / la, uay = ay / la, ubx = bx / lb, uby = by / lb;
+    if (uax * ubx + uay * uby > 0.992) { out.push(pts[i].slice()); continue; }
+    const trim = Math.min(radius, la * 0.46, lb * 0.46);
+    const p1x = pts[i][0] - uax * trim, p1y = pts[i][1] - uay * trim;
+    const p2x = pts[i][0] + ubx * trim, p2y = pts[i][1] + uby * trim;
+    const steps = Math.max(8, Math.ceil(trim / 1.15));
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps, u = 1 - t;
+      out.push([u * u * p1x + 2 * u * t * pts[i][0] + t * t * p2x, u * u * p1y + 2 * u * t * pts[i][1] + t * t * p2y]);
+    }
+  }
+  out.push(pts[pts.length - 1].slice());
+  return out;
+}
+function strokePath(pts, width, style) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.lineWidth = width;
+  ctx.strokeStyle = style;
+  ctx.stroke();
+}
+function traceHead(tipX, tipY, ux, uy, len, half) {
+  const px = -uy, py = ux;
+  const bx = tipX - ux * len, by = tipY - uy * len;
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(bx + px * half, by + py * half);
+  ctx.lineTo(bx - px * half, by - py * half);
+  ctx.closePath();
+}
+function strokeHead(tipX, tipY, ux, uy, len, half, sw, style) {
+  traceHead(tipX, tipY, ux, uy, len, half);
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = sw;
+  ctx.strokeStyle = style;
+  ctx.fillStyle = style;
+  ctx.stroke();
+  ctx.fill();
+}
+function arrowGeom(a, s) {
   const t0 = s, t1 = s + a.L, pts = a.pts;
   const list = [ptAt(pts, t0)];
   for (let i = Math.floor(t0) + 1; i < t1; i++) list.push(pts[i]);
   list.push(ptAt(pts, t1));
   const P = list.map(([x, y]) => [ox + (x + 0.5) * cs, oy + (y + 0.5) * cs]);
-  ctx.save(); ctx.globalAlpha = alpha;
-  let stroke = color;
-  if (a.rainbow) {
-    const g = ctx.createLinearGradient(P[0][0], P[0][1], P[P.length - 1][0] + 1, P[P.length - 1][1] + 1);
-    const h0 = (now * 120) % 360;
-    for (let k = 0; k <= 5; k++) g.addColorStop(k / 5, `hsl(${(h0 + k * 60) % 360},85%,55%)`);
-    stroke = g;
-  }
-  const [ddx, ddy] = dirAt(pts, t1);
+  let [ddx, ddy] = dirAt(pts, t1);
+  const dlen = Math.hypot(ddx, ddy) || 1;
+  const ux = ddx / dlen, uy = ddy / dlen;
+  const tube = Math.max(7.5, cs * 0.5);
+  const headLen = tube * 1.34, headHalf = tube * 0.98, sw = tube * 0.44;
+  const pathLen = headLen - sw * 0.45, pathHalf = headHalf - sw * 0.45;
   const head = P[P.length - 1];
-  const hl = cs * 0.34, hw = cs * 0.26, lw = Math.max(3, cs * 0.2), lw2 = Math.max(2, cs * 0.08), tr = Math.max(2, cs * 0.12);
-  const tipX = head[0] + ddx * hl * 0.55, tipY = head[1] + ddy * hl * 0.55;
-  const bx = head[0] - ddx * hl * 0.55, by = head[1] - ddy * hl * 0.55;
+  const tipReach = Math.min(cs * 0.45, headLen * 0.58);
+  const visTipX = head[0] + ux * tipReach, visTipY = head[1] + uy * tipReach;
+  const tipX = visTipX - ux * sw * 0.5, tipY = visTipY - uy * sw * 0.5;
+  const backX = visTipX - ux * headLen, backY = visTipY - uy * headLen;
+  const shaft = [P[0]];
+  for (let i = 1; i < P.length - 1; i++) shaft.push(P[i]);
+  const endX = backX + ux * headLen * 0.62, endY = backY + uy * headLen * 0.62;
+  const q = shaft[shaft.length - 1];
+  if (Math.hypot(endX - q[0], endY - q[1]) > 0.75) shaft.push([endX, endY]);
+  else { shaft[shaft.length - 1] = [endX, endY]; }
+  if (shaft.length < 2) shaft.push([endX + ux, endY + uy]);
+  return { shaft, ux, uy, tipX, tipY, tube, headLen, headHalf, pathLen, pathHalf, sw };
+}
+function tubeBounds(g) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const add = (x, y, m) => { minX = Math.min(minX, x - m); minY = Math.min(minY, y - m); maxX = Math.max(maxX, x + m); maxY = Math.max(maxY, y + m); };
+  for (const p of g.shaft) add(p[0], p[1], g.tube * 0.7);
+  add(g.tipX, g.tipY, g.headLen + g.headHalf);
+  return [minX - 4, minY - 4, maxX + 6, maxY + 6];
+}
+function paintShadow(g) {
+  const line = roundCorners(g.shaft, g.tube * 0.82);
+  const dark = theme === 'dark';
+  const rgb = dark ? '0,0,0' : '74,54,28';
+  const passes = dark
+    ? [[0.5, 2.4, 1.02, 0.32], [1.1, 4.6, 1.16, 0.18]]
+    : [[0.35, 1.7, 1.0, 0.13], [0.7, 3.3, 1.12, 0.08], [1.1, 5.2, 0.78, 0.05]];
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  // 画一遍箭头；extra>0 时作为外描边（提示光圈 / 撞墙描边），不用 shadowBlur
-  const pass = (col, extra) => {
-    ctx.strokeStyle = col; ctx.fillStyle = col;
-    ctx.lineWidth = lw + extra * 2;
-    ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]);
-    // 线身止于箭头底部，避免穿出尖端
-    for (let i = 1; i < P.length - 1; i++) ctx.lineTo(P[i][0], P[i][1]);
-    ctx.lineTo(head[0] - ddx * hl * 0.6, head[1] - ddy * hl * 0.6);
-    ctx.stroke();
-    // 尖端三角
-    ctx.beginPath(); ctx.moveTo(tipX, tipY);
-    ctx.lineTo(bx - ddy * hw, by + ddx * hw); ctx.lineTo(bx + ddy * hw, by - ddx * hw); ctx.closePath();
-    ctx.lineWidth = lw2 + extra * 2; ctx.stroke(); ctx.fill();
-    // 尾端小圆点
-    ctx.beginPath(); ctx.arc(P[0][0], P[0][1], tr + extra, 0, Math.PI * 2); ctx.fill();
+  for (const [dx, dy, wk, al] of passes) {
+    ctx.save();
+    ctx.translate(dx, dy);
+    const col = `rgba(${rgb},${al})`;
+    strokePath(line, g.tube * wk, col);
+    strokeHead(g.tipX, g.tipY, g.ux, g.uy, g.pathLen, g.pathHalf, g.sw * Math.max(0.7, wk), col);
+    ctx.restore();
+  }
+}
+function paintFlat(g, color, extra) {
+  const line = roundCorners(g.shaft, g.tube * 0.82);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  strokePath(line, g.tube + extra * 2, color);
+  strokeHead(g.tipX, g.tipY, g.ux, g.uy, g.pathLen + extra, g.pathHalf + extra, g.sw + extra * 0.35, color);
+}
+function paintShaded(g, color, rainbow) {
+  const tube = g.tube;
+  const line = roundCorners(g.shaft, tube * 0.82);
+  const h0 = (now * 120) % 360;
+  const along = (light) => {
+    const a = line[0], b = line[line.length - 1];
+    const gr = ctx.createLinearGradient(a[0], a[1], b[0] + 1, b[1] + 1);
+    for (let k = 0; k <= 7; k++) gr.addColorStop(k / 7, `hsl(${(h0 + k * 46) % 360},92%,${light}%)`);
+    return gr;
   };
-  if (under) { ctx.globalAlpha = alpha * (under.a == null ? 1 : under.a); pass(under.col, under.w); ctx.globalAlpha = alpha; }
-  pass(stroke, 0);
+  const cols = rainbow ? null : tubeCols(color);
+  const body = rainbow
+    ? { dark: along(34), mid: along(44), base: along(56), lite: along(74), edge: along(90) }
+    : cols;
+  // 整段圆角描边错位叠加：弯折处高光连续，没有分段接缝
+  const bands = [[-0.2, 1.0, body.dark], [-0.09, 0.97, body.mid], [0, 0.9, body.base], [0.14, 0.5, body.lite], [0.24, 0.22, body.edge]];
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalCompositeOperation = 'source-over';
+  for (const [s, w, style] of bands) {
+    ctx.save();
+    ctx.translate(LIGHTX * tube * s, LIGHTY * tube * s);
+    strokePath(line, Math.max(1.4, tube * w), style);
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.translate(LIGHTX * tube * 0.34, LIGHTY * tube * 0.34);
+  ctx.globalAlpha = 0.38;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  strokePath(line, Math.max(1.3, tube * 0.16), 'rgba(255,255,255,.9)');
   ctx.restore();
+  const headBands = [[-0.16, body.dark], [-0.06, body.mid], [0, body.base]];
+  for (const [s, style] of headBands) {
+    ctx.save();
+    ctx.translate(LIGHTX * tube * s, LIGHTY * tube * s);
+    strokeHead(g.tipX, g.tipY, g.ux, g.uy, g.pathLen, g.pathHalf, g.sw, style);
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.globalAlpha = 0.4;
+  ctx.fillStyle = 'rgba(255,255,255,.95)';
+  ctx.beginPath();
+  ctx.ellipse(
+    g.tipX - g.ux * g.pathLen * 0.34 + LIGHTX * g.pathHalf * 0.28,
+    g.tipY - g.uy * g.pathLen * 0.34 + LIGHTY * g.pathHalf * 0.28,
+    Math.max(1.6, g.pathHalf * 0.22), Math.max(1, g.pathHalf * 0.11),
+    Math.atan2(LIGHTY, LIGHTX), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+function blitTube(g, alpha, draw) {
+  const b = tubeBounds(g);
+  const x = Math.floor(b[0]), y = Math.floor(b[1]);
+  const w = Math.max(1, Math.ceil(b[2] - x)), h = Math.max(1, Math.ceil(b[3] - y));
+  const pw = Math.max(1, Math.ceil(w * DPR)), ph = Math.max(1, Math.ceil(h * DPR));
+  if (!tubeScratch || tubeScratch.width < pw || tubeScratch.height < ph) {
+    tubeScratch = document.createElement('canvas');
+    tubeScratch.width = Math.max(pw, tubeScratch ? tubeScratch.width : 0, 32);
+    tubeScratch.height = Math.max(ph, tubeScratch ? tubeScratch.height : 0, 32);
+    tubeScratchCtx = tubeScratch.getContext('2d');
+  }
+  const sctx = tubeScratchCtx;
+  sctx.setTransform(1, 0, 0, 1, 0, 0);
+  sctx.globalCompositeOperation = 'source-over';
+  sctx.globalAlpha = 1;
+  sctx.clearRect(0, 0, pw, ph);
+  sctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  sctx.translate(-x, -y);
+  const prev = ctx;
+  ctx = sctx;
+  try { draw(); }
+  finally { ctx = prev; }
+  prev.save();
+  prev.globalAlpha *= alpha;
+  prev.drawImage(tubeScratch, 0, 0, pw, ph, x, y, w, h);
+  prev.restore();
+}
+function drawTubeArrow(g, color, alpha, under, rainbow) {
+  const keep = ctx.globalAlpha;
+  ctx.save();
+  ctx.globalAlpha = keep * alpha;
+  paintShadow(g);
+  ctx.restore();
+  if (under) {
+    ctx.save();
+    ctx.globalAlpha = keep * alpha * (under.a == null ? 1 : under.a);
+    paintFlat(g, under.col, under.w);
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.globalAlpha = keep;
+  blitTube(g, alpha, () => paintShaded(g, color, rainbow));
+  ctx.restore();
+}
+function glossArrow(shaft, ux, uy, tipX, tipY, tube, color) {
+  const headLen = tube * 1.28, headHalf = tube * 0.92, sw = tube * 0.36;
+  drawTubeArrow({
+    shaft, ux, uy,
+    tipX: tipX - ux * sw * 0.5, tipY: tipY - uy * sw * 0.5,
+    tube, headLen, headHalf, pathLen: headLen - sw * 0.45, pathHalf: Math.max(1, headHalf - sw * 0.45), sw
+  }, color, 1, null, false);
+}
+function drawArrowShape(a, s, color, alpha, under) {
+  drawTubeArrow(arrowGeom(a, s), color, alpha, under, !!a.rainbow);
 }
 
 // ---------- 图标（全部代码绘制） ----------
@@ -778,12 +958,10 @@ function drawBoard() {
     ctx.save(); ctx.setLineDash([6, 6]); ctx.lineWidth = 2; ctx.strokeStyle = r2.ok ? C.green : C.red; ctx.globalAlpha = 0.7;
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(end[0], end[1]); ctx.stroke(); ctx.restore();
   }
-  // 箭头：静止的先画，飞行的后画
-  for (const a of arrows) {
-    if (a.gone || (a.anim && a.anim.type === 'fly')) continue;
+  // 箭头：普通静止的进离屏层；彩虹 / 提示 / 撞击每帧单画；飞行的最后画
+  const drawStill = (a) => {
     const own = acol(a), ow = Math.max(2, cs * 0.07);
     let s = 0, color = own, under = null;
-    // 撞墙/挡路：变红闪烁 + 深色外描边，撞墙的那支还会前后抖动
     const bumping = a.anim && a.anim.type === 'bump';
     if (bumping) { const p = a.anim.t / a.anim.dur; s = a.anim.dist * Math.sin(Math.PI * p); }
     if (bumping || a.hitFlash > 0) {
@@ -793,7 +971,23 @@ function drawBoard() {
       under = { col: '#ffbf1f', w: ow * (1.6 + Math.sin(now * 8) * 0.6), a: 0.9 };
     } else if (a.id === hoverId && pointerType === 'mouse') under = { col: C.hover, w: ow * 0.8 };
     drawArrowShape(a, s, color, 1, under);
+  };
+  const liveStill = a => !a.gone && !(a.anim && a.anim.type === 'fly') && (a.rainbow || a.id === hintId || a.hitFlash > 0 || (a.anim && a.anim.type === 'bump'));
+  let key = (level * 97 + diff * 13 + (theme === 'dark' ? 1 : 2) + cols * 17 + rows) >>> 0;
+  const mix = (n) => { key = Math.imul(key ^ (n | 0), 16777619) >>> 0; };
+  mix(cs * 100); mix(ox * 10); mix(oy * 10); mix(hoverId + 5); mix(hintId + 8);
+  for (const a of arrows) { mix(a.id + 1); mix(a.gone ? 3 : (a.anim && a.anim.type === 'fly') || liveStill(a) ? 5 : 7); mix(a.ci == null ? 99 : a.ci); }
+  if (!arrowLayer || arrowLayer.key !== key) {
+    const m = Math.ceil(cs + 18), L = makeLayer(bw + m * 2, bh + m * 2);
+    L.x = ox - m; L.y = oy - m; L.key = key;
+    withCtx(L.g, () => {
+      ctx.translate(-L.x, -L.y);
+      for (const a of arrows) if (!a.gone && !(a.anim && a.anim.type === 'fly') && !liveStill(a)) drawStill(a);
+    });
+    arrowLayer = L;
   }
+  ctx.drawImage(arrowLayer.c, arrowLayer.x, arrowLayer.y, arrowLayer.w, arrowLayer.h);
+  for (const a of arrows) if (liveStill(a)) drawStill(a);
   for (const a of arrows) {
     if (!a.anim || a.anim.type !== 'fly') continue;
     const s = a.anim.s, alpha = clamp(1 - (s - a.exitS) / (a.L + 3), 0, 1);
@@ -850,11 +1044,8 @@ function drawLogo(x, y, s) {
   ctx.fillStyle = accentGrad(x - s / 2, y - s / 2, s, s); rr(x - s / 2, y - s / 2, s, s, s * 0.28); ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,.28)';
   for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { ctx.beginPath(); ctx.arc(x + (i - 1) * s * 0.27, y + (j - 1) * s * 0.27, s * 0.035, 0, Math.PI * 2); ctx.fill(); }
-  ctx.strokeStyle = '#fff'; ctx.fillStyle = '#fff'; ctx.lineWidth = s * 0.1; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const u = s * 0.27;
-  ctx.beginPath(); ctx.moveTo(x - u, y + u); ctx.lineTo(x - u, y); ctx.lineTo(x + u * 0.35, y); ctx.stroke();
-  ctx.beginPath(); ctx.arc(x - u, y + u, s * 0.07, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(x + u * 1.15, y); ctx.lineTo(x + u * 0.3, y - u * 0.55); ctx.lineTo(x + u * 0.3, y + u * 0.55); ctx.closePath(); ctx.lineWidth = s * 0.04; ctx.stroke(); ctx.fill();
+  const u = s * 0.3, tube = s * 0.15;
+  glossArrow([[x - u * 0.9, y + u * 0.85], [x - u * 0.9, y - u * 0.02], [x + u * 0.05, y - u * 0.02]], 1, 0, x + u * 1.05, y - u * 0.02, tube, '#ffffff');
   ctx.restore();
 }
 function drawMenu() {
@@ -880,9 +1071,9 @@ function drawMenu() {
   y += T + 16;
   // 标题下飞过的小箭头
   const t = (now % 2.4) / 2.4, ax = W / 2 - 90 + 180 * t, ay = y + 8;
-  ctx.globalAlpha = Math.min(1, (1 - t) * 3, t * 6); ctx.strokeStyle = C.accent; ctx.fillStyle = C.accent; ctx.lineWidth = 4; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(ax - 46, ay); ctx.lineTo(ax - 6, ay); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(ax + 6, ay); ctx.lineTo(ax - 8, ay - 8); ctx.lineTo(ax - 8, ay + 8); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.save(); ctx.globalAlpha = Math.min(1, (1 - t) * 3, t * 6);
+  glossArrow([[ax - 44, ay], [ax - 16, ay]], 1, 0, ax + 2, ay, 8, C.accent);
+  ctx.restore();
   y += 22;
   ctx.fillStyle = C.sub; ctx.font = `15px ${FONT}`; ctx.fillText('箭头迷宫 · 点一下，让它冲出去', W / 2, y + 6); y += 30;
   // 难度：分段控件（滑块平滑移动）
